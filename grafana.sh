@@ -1,11 +1,14 @@
 #!/bin/bash
-# grafana.sh - Version 1.6
+# grafana.sh - Version 1.7
 # This script uninstalls any existing Grafana installation and related configuration files,
 # then installs Grafana on a Raspberry Pi using a prebuilt ARM package.
 # It prompts whether you are using a 32-bit or 64-bit OS (defaulting to 64-bit) and installs
 # the appropriate package. For 64-bit systems, it downloads the package without the "-rpi" suffix.
 #
-# After installation, it sets up Grafana’s systemd service, adjusts directory ownership,
+# Next, it prompts for a Grafana admin username and password (defaulting to admin/admin)
+# and updates /etc/grafana/grafana.ini accordingly to avoid forced password resets.
+#
+# Then, it sets up Grafana’s systemd service, adjusts directory ownership,
 # waits for Grafana to fully start, configures the InfluxDB datasource (pointing to the combined_sensor_db),
 # and imports a sample dashboard.
 #
@@ -25,7 +28,22 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 print_sep
-echo "Starting Grafana installation script (Version 1.6) with verbose output."
+echo "Starting Grafana installation script (Version 1.7) with verbose output."
+print_sep
+
+########################################
+# Prompt for Grafana admin credentials.
+########################################
+read -p "Enter Grafana admin username (default: admin): " grafana_user
+if [ -z "$grafana_user" ]; then
+    grafana_user="admin"
+fi
+read -sp "Enter Grafana admin password (default: admin): " grafana_pass
+echo
+if [ -z "$grafana_pass" ]; then
+    grafana_pass="admin"
+fi
+echo "Using Grafana admin credentials: ${grafana_user} / ${grafana_pass}"
 print_sep
 
 ########################################
@@ -46,8 +64,8 @@ rm -f /lib/systemd/system/grafana-server.service
 rm -rf /etc/grafana /usr/share/grafana /var/lib/grafana
 
 echo "Attempting to delete any existing Grafana dashboard/datasource via API..."
-curl -s -X DELETE http://admin:admin@localhost:3000/api/dashboards/uid/temperature_dashboard || true
-curl -s -X DELETE http://admin:admin@localhost:3000/api/datasources/name/InfluxDB || true
+curl -s -X DELETE http://$grafana_user:$grafana_pass@localhost:3000/api/dashboards/uid/temperature_dashboard || true
+curl -s -X DELETE http://$grafana_user:$grafana_pass@localhost:3000/api/datasources/name/InfluxDB || true
 
 print_sep
 
@@ -148,6 +166,25 @@ fi
 print_sep
 
 ########################################
+# Update Grafana configuration to set admin credentials.
+########################################
+if [ -f /etc/grafana/grafana.ini ]; then
+    echo "Updating Grafana configuration with admin credentials..."
+    if grep -q "^\[security\]" /etc/grafana/grafana.ini; then
+        sed -i "s/^;*admin_user.*/admin_user = ${grafana_user}/" /etc/grafana/grafana.ini
+        sed -i "s/^;*admin_password.*/admin_password = ${grafana_pass}/" /etc/grafana/grafana.ini
+    else
+        echo "[security]" >> /etc/grafana/grafana.ini
+        echo "admin_user = ${grafana_user}" >> /etc/grafana/grafana.ini
+        echo "admin_password = ${grafana_pass}" >> /etc/grafana/grafana.ini
+    fi
+    echo "Grafana configuration updated."
+else
+    echo "WARNING: /etc/grafana/grafana.ini not found. Grafana may not be configured correctly."
+fi
+print_sep
+
+########################################
 # Fix ownership of Grafana directories to prevent permission errors.
 ########################################
 echo "Ensuring correct ownership for /usr/share/grafana..."
@@ -189,7 +226,7 @@ DS_PAYLOAD=$(cat <<EOF
 EOF
 )
 echo "Sending datasource configuration to Grafana API..."
-curl -s -X POST -H "Content-Type: application/json" -d "${DS_PAYLOAD}" http://admin:admin@localhost:3000/api/datasources
+curl -s -X POST -H "Content-Type: application/json" -d "${DS_PAYLOAD}" http://${grafana_user}:${grafana_pass}@localhost:3000/api/datasources
 echo "Datasource configuration completed."
 print_sep
 
@@ -202,11 +239,12 @@ DASHBOARD_JSON=$(cat <<'EOF'
   "dashboard": {
     "id": null,
     "uid": "temperature_dashboard",
-    "title": "Temperature Dashboard",
+    "title": "BeerPi Temperature",
+    "folderId": 0,
     "tags": [ "temperature" ],
     "timezone": "browser",
     "schemaVersion": 16,
-    "version": 0,
+    "version": 1,
     "panels": [
       {
         "type": "graph",
@@ -241,10 +279,10 @@ DASHBOARD_JSON=$(cat <<'EOF'
 EOF
 )
 echo "Sending dashboard JSON to Grafana API..."
-curl -s -X POST -H "Content-Type: application/json" -d "${DASHBOARD_JSON}" http://admin:admin@localhost:3000/api/dashboards/db
+curl -s -X POST -H "Content-Type: application/json" -d "${DASHBOARD_JSON}" http://${grafana_user}:${grafana_pass}@localhost:3000/api/dashboards/db
 echo "Dashboard imported successfully."
 print_sep
 
 echo "Grafana installation and dashboard configuration complete."
 echo "Please check Grafana logs (e.g., via 'sudo journalctl -u grafana-server -n 50') if the Web UI at http://<your_pi_ip>:3000 is not loading."
-echo "Access Grafana at http://<your_pi_ip>:3000 (default credentials: username 'admin', password 'admin')."
+echo "Access Grafana at http://<your_pi_ip>:3000 (credentials: username '${grafana_user}', password '${grafana_pass}')."
