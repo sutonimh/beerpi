@@ -1,5 +1,5 @@
 #!/bin/bash
-# grafana.sh - Version 1.0
+# grafana.sh - Version 1.1
 # This script uninstalls any existing Grafana installation and related configuration files,
 # then installs Grafana on a Raspberry Pi 3B+ using a prebuilt ARM package.
 # It prompts whether you are using a 32-bit or 64-bit OS (defaulting to 64-bit) and installs
@@ -11,27 +11,44 @@
 #
 set -e
 
+# Function to print a separator for clarity.
+print_sep() {
+    echo "----------------------------------------"
+}
+
 # Ensure the script is run as root.
 if [ "$(id -u)" -ne 0 ]; then
     echo "ERROR: This script must be run as root. Please run with sudo."
     exit 1
 fi
 
+print_sep
+echo "Starting Grafana installation script (Version 1.1) with verbose output."
+print_sep
+
 ########################################
 # Clean slate: Remove any previous Grafana installation and files.
 ########################################
 echo "Cleaning previous Grafana installation..."
 if dpkg -l | grep -q grafana-rpi; then
+    echo "Found existing Grafana package. Stopping Grafana service..."
     systemctl stop grafana-server || true
+    echo "Purging existing Grafana package..."
     dpkg --purge grafana-rpi || true
+else
+    echo "No existing Grafana package found."
 fi
+
+echo "Removing Grafana systemd unit file and configuration directories if present..."
 rm -f /lib/systemd/system/grafana-server.service
-rm -rf /etc/grafana
-rm -rf /usr/share/grafana
-rm -rf /var/lib/grafana
-# Delete previous dashboard and datasource via API (if Grafana is running)
+rm -rf /etc/grafana /usr/share/grafana /var/lib/grafana
+
+# Delete previously imported dashboard and datasource via API (if Grafana is running)
+echo "Attempting to delete any existing Grafana dashboard/datasource via API..."
 curl -s -X DELETE http://admin:admin@localhost:3000/api/dashboards/uid/temperature_dashboard || true
 curl -s -X DELETE http://admin:admin@localhost:3000/api/datasources/name/InfluxDB || true
+
+print_sep
 
 ########################################
 # Ask for OS architecture.
@@ -52,33 +69,43 @@ else
     desired_arch="arm64"
     grafana_package_url="https://dl.grafana.com/oss/release/grafana-rpi_9.3.2_arm64.deb"
 fi
+echo "Selected architecture: ${desired_arch}"
+print_sep
 
 ########################################
 # Remove any previously installed Grafana package (if any remain)
 ########################################
 if command -v grafana-server > /dev/null; then
     installed_arch=$(dpkg-query -W -f='${Architecture}' grafana-rpi 2>/dev/null || echo "none")
+    echo "Previously installed Grafana architecture: $installed_arch"
     if [ "$installed_arch" != "$desired_arch" ]; then
-        echo "Installed Grafana architecture ($installed_arch) does not match desired ($desired_arch). Removing..."
+        echo "Installed Grafana architecture ($installed_arch) does not match desired ($desired_arch). Removing package..."
         dpkg --purge grafana-rpi || true
+    else
+        echo "Grafana is already installed with the desired architecture ($installed_arch)."
     fi
 fi
+
+print_sep
 
 ########################################
 # Install Grafana via prebuilt ARM package.
 ########################################
-echo "Installing Grafana for ${desired_arch}..."
+echo "Downloading Grafana package from: ${grafana_package_url}"
 wget -qO grafana.deb "$grafana_package_url"
+echo "Installing Grafana package..."
 dpkg -i grafana.deb || true
+echo "Fixing any dependency issues..."
 apt-get install -y -f
 rm grafana.deb
+print_sep
 
 ########################################
 # Create Grafana systemd unit file if missing.
 ########################################
 SERVICE_FILE="/lib/systemd/system/grafana-server.service"
 if [ ! -f "$SERVICE_FILE" ]; then
-    echo "Creating Grafana systemd unit file..."
+    echo "Grafana systemd unit file not found. Creating it..."
     cat > "$SERVICE_FILE" <<'EOF'
 [Unit]
 Description=Grafana instance
@@ -97,36 +124,48 @@ LimitNOFILE=10000
 [Install]
 WantedBy=multi-user.target
 EOF
+    echo "Reloading systemd daemon..."
     systemctl daemon-reload
+else
+    echo "Grafana systemd unit file already exists."
 fi
+print_sep
 
 ########################################
 # Ensure the Grafana user exists.
 ########################################
 if ! id grafana > /dev/null 2>&1; then
-    echo "Creating Grafana system user..."
+    echo "Grafana user not found. Creating system user 'grafana'..."
     groupadd --system grafana
     useradd --system --no-create-home --shell /usr/sbin/nologin -g grafana grafana
+else
+    echo "Grafana system user exists."
 fi
+print_sep
 
 ########################################
 # Enable and start the Grafana service.
 ########################################
-echo "Enabling and starting Grafana service..."
+echo "Enabling Grafana service..."
 systemctl enable grafana-server
+echo "Starting Grafana service..."
 systemctl start grafana-server || { echo "ERROR: Failed to start grafana-server service."; exit 1; }
-echo "Grafana is installed and running."
+sleep 5
+echo "Checking Grafana service status..."
+systemctl status grafana-server --no-pager
+print_sep
 
 ########################################
 # Wait for Grafana to fully start.
 ########################################
 echo "Waiting 30 seconds for Grafana to fully start..."
 sleep 30
+print_sep
 
 ########################################
 # Configure Grafana InfluxDB datasource.
 ########################################
-echo "Configuring Grafana datasource..."
+echo "Configuring Grafana InfluxDB datasource..."
 DS_PAYLOAD=$(cat <<EOF
 {
   "name": "InfluxDB",
@@ -138,8 +177,10 @@ DS_PAYLOAD=$(cat <<EOF
 }
 EOF
 )
+echo "Sending datasource configuration to Grafana API..."
 curl -s -X POST -H "Content-Type: application/json" -d "${DS_PAYLOAD}" http://admin:admin@localhost:3000/api/datasources
-echo "Grafana datasource configured."
+echo "Datasource configuration completed."
+print_sep
 
 ########################################
 # Import a sample dashboard into Grafana.
@@ -187,8 +228,11 @@ DASHBOARD_JSON=$(cat <<'EOF'
 }
 EOF
 )
+echo "Sending dashboard JSON to Grafana API..."
 curl -s -X POST -H "Content-Type: application/json" -d "${DASHBOARD_JSON}" http://admin:admin@localhost:3000/api/dashboards/db
 echo "Dashboard imported successfully."
+print_sep
 
 echo "Grafana installation and dashboard configuration complete."
-echo "Access Grafana at http://<your_pi_ip>:3000 (username 'admin', password 'admin')."
+echo "Please check Grafana logs (e.g., via 'sudo journalctl -u grafana-server -n 50') if the Web UI at http://<your_pi_ip>:3000 is not loading."
+echo "Access Grafana at http://<your_pi_ip>:3000 (default credentials: username 'admin', password 'admin')."
