@@ -1,27 +1,60 @@
 #!/usr/bin/env python3
 """
-web_ui.py v1.1
+web_ui.py v1.3
 Handles the Flask web interface for BeerPi.
-- Initializes and runs the Flask app.
-- Provides UI for temperature monitoring and relay control.
-- Displays simulated sensor data from MQTT.
+- Retrieves sensor data from the MariaDB database.
+- Displays the most recent sensor reading and, optionally, historical graph data.
+- Shows a data mode indicator below the graph card:
+    • "Simulated Data" in red when no sensor is connected.
+    • "Live Data" in green when live sensor data is available.
 """
 
+import os
 import logging
 from flask import Flask, render_template, jsonify
-import mqtt_handler  # Import MQTT for accessing sensor data and publishing messages
+import mysql.connector
+from logging.handlers import RotatingFileHandler
+import mqtt_handler  # Used for the data_mode indicator
 
 # ---------------------------
 # Logging Configuration
 # ---------------------------
 log_file = "/home/tempmonitor/temperature_monitor/web_ui.log"
-handler = logging.handlers.RotatingFileHandler(log_file, maxBytes=5*1024*1024, backupCount=5)
+handler = RotatingFileHandler(log_file, maxBytes=5*1024*1024, backupCount=5)
 formatter = logging.Formatter("%(asctime)s %(levelname)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
 handler.setFormatter(formatter)
 logger = logging.getLogger("WebUI")
 logger.setLevel(logging.DEBUG)
 logger.addHandler(handler)
-logging.info("Web UI starting... (v1.1)")
+logging.info("Web UI starting... (v1.3)")
+
+# ---------------------------
+# Database Connection Settings
+# ---------------------------
+DB_HOST = os.environ.get('DB_HOST', 'localhost')
+DB_USER = os.environ.get('DB_USER', 'beerpi')
+DB_DATABASE = os.environ.get('DB_DATABASE', 'beerpi_db')
+DB_PASSWORD = os.environ.get('DB_PASSWORD', '')
+
+# ---------------------------
+# Helper Function to Retrieve Latest Sensor Data
+# ---------------------------
+def get_latest_sensor_data():
+    """Queries the database for the latest sensor reading."""
+    try:
+        conn = mysql.connector.connect(host=DB_HOST, user=DB_USER, password=DB_PASSWORD, database=DB_DATABASE)
+        cursor = conn.cursor()
+        cursor.execute("SELECT temperature, relay_state, timestamp FROM sensor_data ORDER BY timestamp DESC LIMIT 1")
+        row = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        if row:
+            return {"temperature": row[0], "relay_state": row[1], "timestamp": row[2]}
+        else:
+            return {"temperature": None, "relay_state": "Unknown", "timestamp": None}
+    except Exception as e:
+        logging.error("Failed to retrieve sensor data: " + str(e))
+        return {"temperature": None, "relay_state": "Error", "timestamp": None}
 
 # ---------------------------
 # Flask Web Application Setup
@@ -31,22 +64,22 @@ app = Flask(__name__)
 @app.route("/", methods=["GET", "POST"])
 def index():
     message = "System is running."
-    # Notify via MQTT that the web UI was loaded
-    mqtt_handler.publish_message("home/beerpi/web_status", "Web UI Loaded", retain=False)
-    # Retrieve the latest simulated sensor data from mqtt_handler globals
-    current_relay_state = mqtt_handler.current_relay_state
-    current_temperature = mqtt_handler.current_temperature
+    sensor_data = get_latest_sensor_data()
+    # Get the data mode from mqtt_handler (set by temp_control.py)
+    data_mode = getattr(mqtt_handler, "data_mode", "Unknown")
     return render_template("index.html",
                            message=message,
-                           current_relay_state=current_relay_state,
-                           current_temperature=current_temperature)
+                           sensor_data=sensor_data,
+                           data_mode=data_mode)
 
 @app.route("/data", methods=["GET"])
 def data():
-    # Endpoint to fetch the latest sensor data as JSON (for dynamic UI updates)
+    """Endpoint to fetch the latest sensor data as JSON."""
+    sensor_data = get_latest_sensor_data()
+    data_mode = getattr(mqtt_handler, "data_mode", "Unknown")
     return jsonify({
-        "current_relay_state": mqtt_handler.current_relay_state,
-        "current_temperature": mqtt_handler.current_temperature
+        "sensor_data": sensor_data,
+        "data_mode": data_mode
     })
 
 def start_web_ui():
