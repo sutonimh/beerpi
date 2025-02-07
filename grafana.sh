@@ -1,5 +1,5 @@
 #!/bin/bash
-# grafana.sh - Version 1.3
+# grafana.sh - Version 1.4
 # This script uninstalls any existing Grafana installation and related configuration files,
 # then installs Grafana on a Raspberry Pi using a prebuilt ARM package.
 # It prompts whether you are using a 32-bit or 64-bit OS (defaulting to 64-bit) and installs
@@ -25,7 +25,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 print_sep
-echo "Starting Grafana installation script (Version 1.3) with verbose output."
+echo "Starting Grafana installation script (Version 1.4) with verbose output."
 print_sep
 
 ########################################
@@ -214,7 +214,8 @@ DASHBOARD_JSON=$(cat <<'EOF'
             ],
             "select": [
               [
-                { "type": "field", "params": [ "temperature" ] }
+                { "type": "field", "params": [ "temperature" ] },
+                { "type": "mean", "params": [] }
               ]
             ],
             "refId": "A"
