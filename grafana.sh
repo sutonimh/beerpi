@@ -8,12 +8,11 @@
 #  - Updates /etc/grafana/grafana.ini with the provided admin credentials to avoid forced password resets
 #  - Fixes directory ownership for Grafana (/usr/share/grafana)
 #  - Creates and starts the Grafana systemd service
-#  - Performs a single health check of Grafana’s API (/api/health)
-#  - Calls a secondary import script (grafana_import.sh) to configure the InfluxDB datasource and import the dashboard
-#  - Verifies that the datasource and dashboard are present by querying the Grafana API
+#  - Performs a one-time health check of Grafana’s API (/api/health)
+#  - Calls a secondary import script (grafana_import.sh) and passes the admin credentials as arguments
+#  - Verifies by querying Grafana’s API that the InfluxDB datasource and BeerPi Temperature dashboard are present
 #
-# WARNING: This script will remove any existing Grafana installation, configuration,
-# dashboards, and datasources.
+# WARNING: This script will remove any existing Grafana installation, configuration, dashboards, and datasources.
 #
 set -e
 
@@ -204,7 +203,7 @@ chown -R grafana:grafana /usr/share/grafana || { echo "Failed to fix ownership o
 print_sep
 
 ########################################
-# Quick health check of Grafana API.
+# Perform a one-time Grafana API health check.
 ########################################
 echo "Performing a one-time Grafana API health check..."
 HEALTH=$(curl -s http://localhost:3000/api/health)
