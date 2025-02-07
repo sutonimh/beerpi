@@ -1,5 +1,5 @@
 #!/bin/bash
-# grafana.sh - Version 1.12
+# grafana.sh - Version 1.13
 # This script sets up Grafana on a Raspberry Pi by performing the following:
 #  - Prompts for Grafana admin username and password (default: admin/admin)
 #  - Auto-detects the system architecture (32-bit or 64-bit) and selects the correct Grafana package URL
@@ -10,6 +10,7 @@
 #  - Creates and starts the Grafana systemd service
 #  - Waits until Grafana’s API (/api/health) reports healthy ("database" : "ok")
 #  - Calls a secondary import script (grafana_import.sh) to configure the InfluxDB datasource and import the dashboard
+#  - Then verifies by querying Grafana’s API that the datasource and dashboard were imported successfully
 #
 # WARNING: This script will remove any existing Grafana installation, configuration, dashboards, and datasources.
 #
@@ -27,7 +28,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 print_sep
-echo "Starting Grafana installation script (Version 1.12) with verbose output."
+echo "Starting Grafana installation script (Version 1.13) with verbose output."
 print_sep
 
 ########################################
@@ -200,7 +201,6 @@ print_sep
 # Wait for Grafana API to be available.
 ########################################
 echo "Waiting for Grafana API to become available..."
-# Poll the /api/health endpoint using a regex that allows whitespace between tokens.
 HEALTH=$(curl -s http://localhost:3000/api/health)
 echo "Grafana API health check returned: ${HEALTH}"
 retry=0
@@ -229,6 +229,29 @@ if [ -f ./grafana_import.sh ]; then
     ./grafana_import.sh
 else
     echo "Secondary import script (grafana_import.sh) not found, skipping datasource and dashboard import."
+fi
+print_sep
+
+########################################
+# Verify that the datasource and dashboard have been imported.
+########################################
+echo "Verifying datasource import..."
+DS_CHECK=$(curl -s http://${grafana_user}:${grafana_pass}@localhost:3000/api/datasources/name/InfluxDB)
+echo "Datasource check response: ${DS_CHECK}"
+if echo "$DS_CHECK" | grep -q '"name":"InfluxDB"'; then
+    echo "Datasource verified successfully."
+else
+    echo "WARNING: Datasource not found. Please check Grafana logs."
+fi
+print_sep
+
+echo "Verifying dashboard import..."
+DB_CHECK=$(curl -s http://${grafana_user}:${grafana_pass}@localhost:3000/api/dashboards/uid/temperature_dashboard)
+echo "Dashboard check response: ${DB_CHECK}"
+if echo "$DB_CHECK" | grep -q '"title":"BeerPi Temperature"'; then
+    echo "Dashboard verified successfully."
+else
+    echo "WARNING: Dashboard not found. Please check Grafana logs."
 fi
 print_sep
 
