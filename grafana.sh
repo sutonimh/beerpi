@@ -1,22 +1,21 @@
 #!/bin/bash
 # grafana.sh - Version 2.1
-# This merged script sets up Grafana on a Raspberry Pi by performing the following:
+# This script sets up Grafana on a Raspberry Pi by performing the following:
+#  - Prompts for Grafana admin username and password (default: admin/admin)
+#  - Auto-detects the system architecture (32-bit or 64-bit) and selects the correct Grafana package URL
+#  - Checks if the correct Grafana package is already installed; if so, it skips purging/reinstalling
+#  - Otherwise, it removes any previous Grafana installation and configuration files, and installs Grafana
+#  - Overwrites /etc/grafana/grafana.ini using the default configuration, and appends a [security] section
+#    with the provided admin credentials (to avoid forced password resets)
+#  - Fixes directory ownership for Grafana (/usr/share/grafana)
+#  - Creates and starts the Grafana systemd service and restarts it so that the new credentials take effect
+#  - Performs a one-time health check of Grafana’s API (/api/health)
+#  - Verifies credentials via a test search, then calls a secondary import routine (inline) to configure
+#    the InfluxDB datasource and import the BeerPi Temperature dashboard
+#  - Finally, verifies by querying the Grafana API that the datasource and dashboard have been imported.
 #
-# 1. Prompts for Grafana admin username and password (default: admin/admin)
-# 2. Auto-detects the system architecture (32-bit or 64-bit) and selects the correct Grafana package URL
-# 3. If Grafana is not installed, cleans any previous Grafana package/configuration,
-#    installs Grafana from the prebuilt ARM package, and creates the systemd unit file.
-#    If Grafana is already installed, it skips the package purge/reinstallation.
-# 4. Force-updates /etc/grafana/grafana.ini by copying the defaults file (if available) and appending a [security] section with the provided credentials.
-# 5. Fixes directory ownership for /usr/share/grafana.
-# 6. Restarts Grafana so that the new configuration takes effect.
-# 7. Performs a one-time Grafana API health check.
-# 8. Verifies the provided credentials via a test API call.
-# 9. Calls the secondary import steps (within this same script) to configure the InfluxDB datasource and import the BeerPi Temperature dashboard.
-# 10. Verifies by querying the Grafana API that both the datasource and dashboard are present.
-#
-# WARNING: This script will remove any existing Grafana configuration, dashboards, and datasources.
-# It does not force-purge/reinstall the Grafana package if it is already installed.
+# WARNING: This script will remove any existing Grafana configuration, dashboards, and datasources
+# if a reinstall is triggered.
 #
 set -e
 
@@ -32,7 +31,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 print_sep
-echo "Starting Grafana installation script (Version 2.1) with minimal package reinstallation."
+echo "Starting Grafana installation script (Version 2.1) with minimal delays."
 print_sep
 
 ########################################
@@ -51,16 +50,13 @@ echo "Using Grafana admin credentials: ${grafana_user} / ${grafana_pass}"
 print_sep
 
 ########################################
-# Clean slate for configuration and API objects.
-# (Do not purge package if already installed.)
+# Clean slate for configuration only (optional removal of old dashboards/datasources).
 ########################################
 echo "Removing Grafana systemd unit file and configuration directories if present..."
 rm -f /lib/systemd/system/grafana-server.service
-# Note: We intentionally do not remove /etc/grafana if Grafana is already installed,
-# so as not to purge the package. But if you want a full clean slate, uncomment the next line:
-# rm -rf /etc/grafana /usr/share/grafana /var/lib/grafana
-# Instead, we will force-update configuration later.
-echo "Deleting existing dashboard and datasource via API..."
+rm -rf /etc/grafana /usr/share/grafana /var/lib/grafana
+
+echo "Attempting to delete any existing Grafana dashboard/datasource via API..."
 curl -s -X DELETE http://${grafana_user}:${grafana_pass}@localhost:3000/api/dashboards/uid/temperature_dashboard || true
 curl -s -X DELETE http://${grafana_user}:${grafana_pass}@localhost:3000/api/datasources/name/InfluxDB || true
 print_sep
@@ -85,10 +81,41 @@ echo "Selected architecture: ${desired_arch}"
 print_sep
 
 ########################################
-# Install Grafana package if not already installed.
+# Determine package name based on architecture.
 ########################################
-if ! command -v grafana-server > /dev/null; then
-    echo "Grafana is not installed. Proceeding with package installation..."
+if [ "$desired_arch" = "armhf" ]; then
+    pkg_name="grafana-rpi"
+else
+    pkg_name="grafana"
+fi
+echo "Using package name: ${pkg_name}"
+print_sep
+
+########################################
+# Check if the correct Grafana package is already installed.
+########################################
+skip_install=0
+if dpkg -l | grep -q "^ii\s\+$pkg_name"; then
+    installed_version=$(dpkg-query -W -f='${Version}' $pkg_name 2>/dev/null)
+    echo "$pkg_name is already installed with version $installed_version."
+    # Compare with expected version (assumed to be 9.3.2)
+    if [ "$installed_version" = "9.3.2" ]; then
+        echo "No version change detected. Skipping package reinstallation."
+        skip_install=1
+    else
+        echo "Version change detected. Purging $pkg_name..."
+        dpkg --purge $pkg_name || true
+        skip_install=0
+    fi
+else
+    echo "$pkg_name is not installed. Will proceed with installation."
+fi
+print_sep
+
+########################################
+# Install Grafana if needed.
+########################################
+if [ "$skip_install" -eq 0 ]; then
     echo "Downloading Grafana package from: ${grafana_package_url}"
     wget -O grafana.deb "$grafana_package_url"
     echo "Download completed."
@@ -99,7 +126,7 @@ if ! command -v grafana-server > /dev/null; then
     rm grafana.deb
     echo "Grafana package installation completed."
 else
-    echo "Grafana package is already installed. Skipping package installation."
+    echo "Skipping Grafana package installation."
 fi
 print_sep
 
@@ -210,9 +237,11 @@ fi
 print_sep
 
 ########################################
-# Import InfluxDB datasource.
+# Configure InfluxDB datasource and import BeerPi Temperature dashboard.
 ########################################
-echo "Importing InfluxDB datasource..."
+echo "Importing InfluxDB datasource and BeerPi Temperature dashboard..."
+
+# Configure datasource.
 DS_PAYLOAD=$(cat <<EOF
 {
   "name": "InfluxDB",
@@ -234,10 +263,7 @@ else
 fi
 print_sep
 
-########################################
-# Import BeerPi Temperature dashboard.
-########################################
-echo "Importing BeerPi Temperature dashboard..."
+# Import dashboard.
 DASHBOARD_JSON=$(cat <<EOF
 {
   "dashboard": {
