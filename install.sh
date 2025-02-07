@@ -1,10 +1,8 @@
 #!/bin/bash
-# install.sh v2.6
-# - Supports modular MQTT setup (`mqtt_handler.py`)
-# - Installs `mosquitto-clients` and `netcat` for MQTT debugging
-# - Preserves virtual environment (`venv`)
-# - Keeps previous install settings (except passwords)
-# - Fixes permissions before cloning repo
+# install.sh v2.7
+# - Tests MQTT connection immediately after credentials are provided.
+# - Warns user if MQTT broker is unreachable but allows installation to continue.
+# - Keeps previous improvements (preserving venv, remembering settings).
 
 set -e  # Exit on error
 
@@ -72,6 +70,18 @@ sudo apt update
 sudo apt install -y mosquitto-clients netcat
 echo "✅ Mosquitto clients and Netcat installed."
 
+# --- MQTT Connection Test ---
+echo "🔍 Testing MQTT connection to broker at $MQTT_BROKER:$MQTT_PORT..."
+MQTT_TEST_RESULT=$(mosquitto_pub -h "$MQTT_BROKER" -p "$MQTT_PORT" -u "$MQTT_USERNAME" -P "$MQTT_PASSWORD" -t "test/mqtt" -m "MQTT Test Message" 2>&1)
+
+if [[ "$MQTT_TEST_RESULT" == *"Connection Refused"* || "$MQTT_TEST_RESULT" == *"Error"* ]]; then
+    echo "❌ MQTT Connection Test Failed!"
+    echo "⚠️  Installation will continue, but MQTT may not work correctly."
+    echo "🛠️  Check your MQTT broker settings and restart the service later."
+else
+    echo "✅ MQTT Connection Successful! Test message sent."
+fi
+
 # Ensure correct permissions for repo
 echo "🌍 Resetting the repository (removing old files)..."
 sudo rm -rf /home/tempmonitor/temperature_monitor
@@ -132,6 +142,6 @@ echo ""
 echo "🎉 **Installation Complete!** 🎉"
 echo "✅ Temperature monitoring system is now installed and running."
 echo "👉 To check the service status, run:  **sudo systemctl status temp_monitor.service**"
-echo "👉 To test MQTT, run: **mosquitto_pub -h $MQTT_BROKER -p $MQTT_PORT -u $MQTT_USERNAME -P 'your_password' -t 'test/topic' -m 'Hello MQTT'**"
+echo "👉 To test MQTT manually, run: **mosquitto_pub -h $MQTT_BROKER -p $MQTT_PORT -u $MQTT_USERNAME -P 'your_password' -t 'test/mqtt' -m 'Hello MQTT'**"
 echo "👉 To access the web UI, go to: **http://your-pi-ip:5000**"
 echo "🚀 Enjoy your BeerPi temperature monitoring system!"
