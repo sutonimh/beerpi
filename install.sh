@@ -101,44 +101,6 @@ echo -e "${YELLOW}📂 Cloning repository as 'tempmonitor'...${NC}"
 sudo -u tempmonitor git clone https://github.com/sutonimh/beerpi.git /home/tempmonitor/temperature_monitor
 echo -e "${GREEN}✔️  Repository fully re-cloned.${NC}"
 
-# Ensure Virtual Environment Exists
-echo -e "\n${YELLOW}🐍 Checking Python virtual environment...${NC}"
-cd /home/tempmonitor/temperature_monitor
-
-if [ ! -d "venv" ]; then
-    echo -e "${YELLOW}📂 Virtual environment not found, creating one...${NC}"
-    sudo -u tempmonitor python3 -m venv venv
-    echo -e "${GREEN}✔️  Virtual environment created.${NC}"
-else
-    echo -e "${GREEN}✔️  Virtual environment already exists. Skipping creation.${NC}"
-fi
-
-# Upgrade dependencies
-echo -e "\n${YELLOW}📦 Upgrading Python dependencies...${NC}"
-sudo -u tempmonitor /home/tempmonitor/temperature_monitor/venv/bin/pip install --upgrade pip
-sudo -u tempmonitor /home/tempmonitor/temperature_monitor/venv/bin/pip install --upgrade flask plotly mysql-connector-python RPi.GPIO paho-mqtt
-echo -e "${GREEN}✔️  Python dependencies upgraded.${NC}"
-
-# Create Systemd Service
-SERVICE_FILE="/etc/systemd/system/temp_monitor.service"
-echo -e "\n${YELLOW}⚙️  Creating systemd service file...${NC}"
-sudo tee $SERVICE_FILE > /dev/null <<EOF
-[Unit]
-Description=Temperature Monitoring and Relay Control Service
-After=network.target
-
-[Service]
-User=tempmonitor
-WorkingDirectory=/home/tempmonitor/temperature_monitor
-ExecStart=/home/tempmonitor/temperature_monitor/venv/bin/python /home/tempmonitor/temperature_monitor/temp_control.py
-Restart=always
-Environment="PATH=/home/tempmonitor/temperature_monitor/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-
-[Install]
-WantedBy=multi-user.target
-EOF
-echo -e "${GREEN}✔️  Systemd service file created.${NC}"
-
 # Enable and Start Service
 echo -e "\n${YELLOW}🚀 Enabling and starting temp_monitor.service...${NC}"
 sudo systemctl daemon-reload
