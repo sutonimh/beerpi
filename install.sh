@@ -1,13 +1,13 @@
 #!/bin/bash
-# install.sh v3.10
+# install.sh v3.11
 # - Optimized for faster reinstalls
 # - Skips reinstalling packages and venv if they already exist
 # - Pulls only the latest Git changes instead of full re-clone
 # - Installs and configures MariaDB when the database host is localhost
 # - Tests the database connection before continuing
 # - Prompts for MQTT settings (broker, port, username, and password)
-# - Saves DB credentials (including DB_PASSWORD) in the configuration file,
-#   so that web_ui.py can use them just like the MQTT settings.
+# - Saves both DB and MQTT credentials in the configuration file,
+#   so that web_ui.py and mqtt_handler.py can use them.
 # - Informs the user if no temperature sensor is detected (simulated data will be used)
 
 set -e  # Exit on error
@@ -83,7 +83,7 @@ else
 fi
 
 echo -e "\n${YELLOW}🔧 Saving configuration settings...${NC}"
-# Save settings (including DB_PASSWORD) for future installs
+# Save settings (including DB_PASSWORD and MQTT_PASSWORD) for future installs
 cat <<EOF > "$CONFIG_FILE"
 DB_HOST="$DB_HOST"
 DB_USER="$DB_USER"
@@ -92,10 +92,11 @@ DB_PASSWORD="$DB_PASSWORD"
 MQTT_BROKER="$MQTT_BROKER"
 MQTT_PORT="$MQTT_PORT"
 MQTT_USERNAME="$MQTT_USERNAME"
+MQTT_PASSWORD="$MQTT_PASSWORD"
 EOF
 echo -e "${GREEN}✔️  Configuration settings saved.${NC}"
 
-# Store environment variables securely (including DB_PASSWORD)
+# Store environment variables securely (including DB_PASSWORD and MQTT_PASSWORD)
 echo -e "\n${YELLOW}🔒 Storing environment variables...${NC}"
 cat <<EOF >> ~/.bashrc
 export DB_HOST="$DB_HOST"
@@ -105,6 +106,7 @@ export DB_PASSWORD="$DB_PASSWORD"
 export MQTT_BROKER="$MQTT_BROKER"
 export MQTT_PORT="$MQTT_PORT"
 export MQTT_USERNAME="$MQTT_USERNAME"
+export MQTT_PASSWORD="$MQTT_PASSWORD"
 EOF
 echo -e "${GREEN}✔️  Environment variables saved. (Restart your session to apply them.)${NC}"
 
