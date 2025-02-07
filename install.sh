@@ -1,10 +1,11 @@
 #!/bin/bash
-# install.sh v3.5
+# install.sh v3.6
 # - Optimized for faster reinstalls
 # - Skips reinstalling packages and venv if they already exist
 # - Pulls only the latest Git changes instead of full re-clone
 # - Installs and configures MariaDB when the database host is localhost
 # - Tests the database connection before continuing
+# - Prompts for MQTT settings (broker, port, username, and password)
 
 set -e  # Exit on error
 
@@ -25,7 +26,7 @@ else
     echo -e "${RED}⚠️  No previous install settings found. Using defaults.${NC}"
 fi
 
-# --- Interactive Prompts with Defaults ---
+# --- Interactive Prompts for Database Settings ---
 echo -e "\n${YELLOW}🛠️  Configuring Database Settings...${NC}"
 read -p "Enter Database Host [$DB_HOST]: " input
 DB_HOST="${input:-${DB_HOST:-localhost}}"
@@ -38,6 +39,17 @@ echo ""
 
 read -p "Enter Database Name [$DB_DATABASE]: " input
 DB_DATABASE="${input:-${DB_DATABASE:-beerpi_db}}"
+
+# --- Interactive Prompts for MQTT Settings ---
+echo -e "\n${YELLOW}🔧 Configuring MQTT Settings...${NC}"
+read -p "Enter MQTT Broker Address [$MQTT_BROKER]: " input
+MQTT_BROKER="${input:-${MQTT_BROKER:-192.168.5.12}}"
+read -p "Enter MQTT Broker Port [$MQTT_PORT]: " input
+MQTT_PORT="${input:-${MQTT_PORT:-1883}}"
+read -p "Enter MQTT Username [$MQTT_USERNAME]: " input
+MQTT_USERNAME="${input:-${MQTT_USERNAME:-ha_mqtt}}"
+read -s -p "Enter MQTT Password: " MQTT_PASSWORD
+echo ""
 
 # --- MariaDB Installation and Configuration (if using localhost) ---
 if [ "$DB_HOST" == "localhost" ]; then
@@ -67,7 +79,7 @@ else
     exit 1
 fi
 
-echo -e "\n${YELLOW}🔧 Saving database configuration settings...${NC}"
+echo -e "\n${YELLOW}🔧 Saving configuration settings...${NC}"
 # Save settings (excluding passwords) for future installs
 cat <<EOF > "$CONFIG_FILE"
 DB_HOST="$DB_HOST"
@@ -77,7 +89,7 @@ MQTT_BROKER="$MQTT_BROKER"
 MQTT_PORT="$MQTT_PORT"
 MQTT_USERNAME="$MQTT_USERNAME"
 EOF
-echo -e "${GREEN}✔️  Installation settings saved (except passwords).${NC}"
+echo -e "${GREEN}✔️  Configuration settings saved (except passwords).${NC}"
 
 # Store environment variables securely
 echo -e "\n${YELLOW}🔒 Storing environment variables...${NC}"
