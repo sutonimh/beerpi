@@ -1,18 +1,19 @@
 #!/bin/bash
-# grafana.sh - Version 1.7
+# grafana.sh - Version 1.8
 # This script uninstalls any existing Grafana installation and related configuration files,
 # then installs Grafana on a Raspberry Pi using a prebuilt ARM package.
-# It prompts whether you are using a 32-bit or 64-bit OS (defaulting to 64-bit) and installs
-# the appropriate package. For 64-bit systems, it downloads the package without the "-rpi" suffix.
+# It automatically detects whether you are using a 32-bit or 64-bit OS and installs the
+# appropriate package. For 64-bit systems, it downloads the package without the "-rpi" suffix.
 #
 # Next, it prompts for a Grafana admin username and password (defaulting to admin/admin)
 # and updates /etc/grafana/grafana.ini accordingly to avoid forced password resets.
 #
-# Then, it sets up Grafana’s systemd service, adjusts directory ownership,
+# Then, it sets up Grafana’s systemd service, fixes directory ownership,
 # waits for Grafana to fully start, configures the InfluxDB datasource (pointing to the combined_sensor_db),
-# and imports a sample dashboard.
+# and imports a sample dashboard into the General folder.
 #
-# WARNING: This script will remove any existing Grafana installation, configuration, dashboards, and datasources.
+# WARNING: This script will remove any existing Grafana installation, configuration,
+# dashboards, and datasources.
 #
 set -e
 
@@ -28,7 +29,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 print_sep
-echo "Starting Grafana installation script (Version 1.7) with verbose output."
+echo "Starting Grafana installation script (Version 1.8) with verbose output."
 print_sep
 
 ########################################
@@ -64,28 +65,24 @@ rm -f /lib/systemd/system/grafana-server.service
 rm -rf /etc/grafana /usr/share/grafana /var/lib/grafana
 
 echo "Attempting to delete any existing Grafana dashboard/datasource via API..."
-curl -s -X DELETE http://$grafana_user:$grafana_pass@localhost:3000/api/dashboards/uid/temperature_dashboard || true
-curl -s -X DELETE http://$grafana_user:$grafana_pass@localhost:3000/api/datasources/name/InfluxDB || true
+curl -s -X DELETE http://${grafana_user}:${grafana_pass}@localhost:3000/api/dashboards/uid/temperature_dashboard || true
+curl -s -X DELETE http://${grafana_user}:${grafana_pass}@localhost:3000/api/datasources/name/InfluxDB || true
 
 print_sep
 
 ########################################
-# Ask for OS architecture.
+# Auto-detect OS architecture.
 ########################################
-read -p "Are you using a 32-bit or 64-bit OS? (Enter 32 or 64, default is 64): " arch_choice
-if [ -z "$arch_choice" ]; then
-    arch_choice=64
-fi
-
-if [ "$arch_choice" == "32" ]; then
+ARCH=$(uname -m)
+echo "Detected architecture from uname -m: $ARCH"
+if [ "$ARCH" = "armv7l" ]; then
     desired_arch="armhf"
     grafana_package_url="https://dl.grafana.com/oss/release/grafana-rpi_9.3.2_armhf.deb"
-elif [ "$arch_choice" == "64" ]; then
+elif [ "$ARCH" = "aarch64" ]; then
     desired_arch="arm64"
-    # For 64-bit systems, the package name does not include "-rpi".
     grafana_package_url="https://dl.grafana.com/oss/release/grafana_9.3.2_arm64.deb"
 else
-    echo "Invalid choice. Defaulting to 64-bit."
+    echo "Unknown architecture: $ARCH. Defaulting to 64-bit."
     desired_arch="arm64"
     grafana_package_url="https://dl.grafana.com/oss/release/grafana_9.3.2_arm64.deb"
 fi
