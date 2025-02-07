@@ -1,8 +1,8 @@
 #!/bin/bash
-# grafana_import.sh - Version 1.0
+# grafana_import.sh - Version 1.1
 # This script configures the InfluxDB datasource and imports the BeerPi Temperature dashboard into Grafana.
 # It expects the environment variables GRAFANA_USER and GRAFANA_PASS to be set.
-# It checks API responses and prints success or warning messages accordingly.
+# It prints the API responses for verification.
 #
 # WARNING: This script will overwrite any existing datasource named "InfluxDB" and any dashboard with UID "temperature_dashboard".
 #
@@ -18,7 +18,7 @@ print_sep() {
 }
 
 print_sep
-echo "Starting Grafana datasource and dashboard import script (grafana_import.sh - Version 1.0)."
+echo "Starting Grafana datasource and dashboard import script (grafana_import.sh - Version 1.1)."
 print_sep
 
 ########################################
