@@ -1,5 +1,5 @@
 #!/bin/bash
-# influx.sh
+# influx.sh - Version 1.0
 # This script uninstalls any existing InfluxDB installation and data,
 # then installs InfluxDB on a Raspberry Pi using a prebuilt ARM package.
 # It sets up two databases ("sensor_db" and "combined_sensor_db"), drops any preexisting continuous queries,
