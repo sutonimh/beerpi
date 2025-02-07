@@ -1,17 +1,16 @@
 #!/bin/bash
-# grafana.sh - Version 1.14
+# grafana.sh - Version 1.15
 # This script sets up Grafana on a Raspberry Pi by performing the following:
 #  - Prompts for Grafana admin username and password (default: admin/admin)
 #  - Auto-detects the system architecture (32-bit or 64-bit) and selects the correct Grafana package URL
 #  - Removes any previous Grafana installation and configuration files
 #  - Installs Grafana from the prebuilt ARM package
 #  - Updates /etc/grafana/grafana.ini with the provided admin credentials to avoid forced password resets
-#  - Forces a restart of the Grafana service so that the new credentials take effect
-#  - Ensures correct directory ownership for Grafana
+#  - Ensures correct directory ownership for Grafana (/usr/share/grafana)
 #  - Creates and starts the Grafana systemd service
 #  - Waits until Grafana’s API (/api/health) reports healthy ("database" : "ok")
-#  - Verifies that a credential-required API call (search) works with the provided credentials
 #  - Calls a secondary import script (grafana_import.sh) to configure the InfluxDB datasource and import the dashboard
+#  - Verifies that the datasource and dashboard are present by querying the Grafana API
 #
 # WARNING: This script will remove any existing Grafana installation, configuration, dashboards, and datasources.
 #
@@ -29,7 +28,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 print_sep
-echo "Starting Grafana installation script (Version 1.14) with verbose output."
+echo "Starting Grafana installation script (Version 1.15) with verbose output."
 print_sep
 
 ########################################
@@ -179,7 +178,16 @@ else
 fi
 print_sep
 
-# Force a restart so that the updated credentials take effect.
+########################################
+# Fix ownership of Grafana directories to prevent permission errors.
+########################################
+echo "Ensuring correct ownership for /usr/share/grafana..."
+chown -R grafana:grafana /usr/share/grafana || { echo "Failed to fix ownership on /usr/share/grafana"; exit 1; }
+print_sep
+
+########################################
+# Restart Grafana service to apply configuration changes.
+########################################
 echo "Restarting Grafana service to apply new configuration..."
 systemctl restart grafana-server
 sleep 5
@@ -188,10 +196,10 @@ systemctl status grafana-server --no-pager
 print_sep
 
 ########################################
-# Fix ownership of Grafana directories to prevent permission errors.
+# (Optional) Re-run ownership fix after restart, in case service re-created files.
 ########################################
-echo "Ensuring correct ownership for /usr/share/grafana..."
-chown -R grafana:grafana /usr/share/grafana
+echo "Reapplying ownership fix for /usr/share/grafana..."
+chown -R grafana:grafana /usr/share/grafana || { echo "Failed to fix ownership on /usr/share/grafana after restart"; exit 1; }
 print_sep
 
 ########################################
