@@ -1,0 +1,36 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "BeerPi Dashboard",
+    "timezone": "browser",
+    "schemaVersion": 16,
+    "version": 0,
+    "panels": [
+      {
+        "type": "timeseries",
+        "title": "Temperature History",
+        "datasource": "BeerPi InfluxDB",
+        "targets": [
+          {
+            "query": "from(bucket: \"beerpi\")\n  |> range(start: -1h)\n  |> filter(fn: (r) => r._measurement == \"beerpi\" and r._field == \"temperature\")\n  |> aggregateWindow(every: 5s, fn: mean, createEmpty: false)",
+            "format": "time_series"
+          }
+        ],
+        "gridPos": { "x": 0, "y": 0, "w": 12, "h": 9 }
+      },
+      {
+        "type": "stat",
+        "title": "Relay State",
+        "datasource": "BeerPi InfluxDB",
+        "targets": [
+          {
+            "query": "from(bucket: \"beerpi\")\n  |> range(start: -5m)\n  |> filter(fn: (r) => r._measurement == \"beerpi\" and r._field == \"relay\")\n  |> last()",
+            "format": "time_series"
+          }
+        ],
+        "gridPos": { "x": 12, "y": 0, "w": 12, "h": 9 }
+      }
+    ]
+  },
+  "overwrite": true
+}
