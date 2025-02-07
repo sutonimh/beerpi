@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """
-web_ui.py v1.4
+web_ui.py v1.5
 Handles the Flask web interface for BeerPi.
 - Retrieves sensor data from the MariaDB database.
-- Supplies variables expected by the provided index.html template.
-  Expected template variables:
+- Supplies template variables expected by the provided index.html:
     • graph_div: HTML for the graph (placeholder if none available)
     • min_temp: default minimum temperature (e.g. 18.0)
     • max_temp: default maximum temperature (e.g. 25.0)
@@ -19,21 +18,19 @@ import logging
 from flask import Flask, render_template, request, jsonify
 import mysql.connector
 from logging.handlers import RotatingFileHandler
-import mqtt_handler  # (For potential future use, e.g., data mode indicator)
+import mqtt_handler  # (Used here only for consistency; data_mode isn’t shown in this template)
 
 # ---------------------------
 # Logging Configuration
 # ---------------------------
 log_file = "/home/tempmonitor/temperature_monitor/web_ui.log"
 handler = RotatingFileHandler(log_file, maxBytes=5*1024*1024, backupCount=5)
-formatter = logging.Formatter(
-    "%(asctime)s %(levelname)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
-)
+formatter = logging.Formatter("%(asctime)s %(levelname)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
 handler.setFormatter(formatter)
 logger = logging.getLogger("WebUI")
 logger.setLevel(logging.DEBUG)
 logger.addHandler(handler)
-logging.info("Web UI starting... (v1.4)")
+logging.info("Web UI starting... (v1.5)")
 
 # ---------------------------
 # Database Connection Settings
@@ -53,22 +50,23 @@ def get_latest_sensor_data():
     """
     try:
         conn = mysql.connector.connect(
-            host=DB_HOST, user=DB_USER, password=DB_PASSWORD, database=DB_DATABASE
+            host=DB_HOST,
+            user=DB_USER,
+            password=DB_PASSWORD,
+            database=DB_DATABASE
         )
         cursor = conn.cursor()
-        cursor.execute(
-            "SELECT temperature, relay_state, timestamp FROM sensor_data ORDER BY timestamp DESC LIMIT 1"
-        )
+        cursor.execute("SELECT temperature, relay_state, timestamp FROM sensor_data ORDER BY timestamp DESC LIMIT 1")
         row = cursor.fetchone()
         cursor.close()
         conn.close()
         if row:
             return {"temperature": row[0], "relay_state": row[1], "timestamp": row[2]}
         else:
-            return {"temperature": None, "relay_state": "unknown", "timestamp": None}
+            return {"temperature": None, "relay_state": "ERROR", "timestamp": None}
     except Exception as e:
         logging.error("Failed to retrieve sensor data: " + str(e))
-        return {"temperature": None, "relay_state": "error", "timestamp": None}
+        return {"temperature": None, "relay_state": "ERROR", "timestamp": None}
 
 # ---------------------------
 # Flask Web Application Setup
@@ -77,27 +75,27 @@ app = Flask(__name__)
 
 @app.route("/", methods=["GET", "POST"])
 def index():
+    # Status message
     message = "System is running."
+    # Retrieve the latest sensor reading from the database
     sensor_data = get_latest_sensor_data()
-    # Use the relay state from the database (or default to "unknown")
-    current_relay_state = sensor_data.get("relay_state", "unknown")
-    # For the graph, use a placeholder (replace with actual Plotly graph HTML if available)
+    # Map the retrieved relay state; if none, default to "ERROR"
+    current_relay_state = sensor_data.get("relay_state", "ERROR")
+    # Use a placeholder for the graph (replace with actual Plotly graph HTML if available)
     graph_div = "<div id='graph'>[Graph Placeholder]</div>"
-    # Default settings (these could be made configurable if needed)
+    # Default settings values
     min_temp = 18.0
     max_temp = 25.0
     view_hours = 24
-    manual_control = False  # Set to True if manual control is enabled
-    return render_template(
-        "index.html",
-        message=message,
-        graph_div=graph_div,
-        min_temp=min_temp,
-        max_temp=max_temp,
-        view_hours=view_hours,
-        manual_control=manual_control,
-        current_relay_state=current_relay_state,
-    )
+    manual_control = False  # Adjust as needed; you can also store this setting in DB/config if required
+    return render_template("index.html",
+                           message=message,
+                           graph_div=graph_div,
+                           min_temp=min_temp,
+                           max_temp=max_temp,
+                           view_hours=view_hours,
+                           manual_control=manual_control,
+                           current_relay_state=current_relay_state)
 
 @app.route("/data", methods=["GET"])
 def data():
