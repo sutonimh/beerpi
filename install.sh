@@ -1,12 +1,13 @@
 #!/bin/bash
-# install.sh v3.9
+# install.sh v3.10
 # - Optimized for faster reinstalls
 # - Skips reinstalling packages and venv if they already exist
 # - Pulls only the latest Git changes instead of full re-clone
 # - Installs and configures MariaDB when the database host is localhost
 # - Tests the database connection before continuing
 # - Prompts for MQTT settings (broker, port, username, and password)
-# - Exports DB_PASSWORD via a file (~/.beerpi_db_password) so web_ui.py can connect to MariaDB
+# - Saves DB credentials (including DB_PASSWORD) in the configuration file,
+#   so that web_ui.py can use them just like the MQTT settings.
 # - Informs the user if no temperature sensor is detected (simulated data will be used)
 
 set -e  # Exit on error
@@ -41,10 +42,6 @@ echo ""
 
 read -p "Enter Database Name [$DB_DATABASE]: " input
 DB_DATABASE="${input:-${DB_DATABASE:-beerpi_db}}"
-
-# Write DB_PASSWORD to a file for services that do not source ~/.bashrc
-echo "$DB_PASSWORD" > ~/.beerpi_db_password
-chmod 600 ~/.beerpi_db_password
 
 # --- Interactive Prompts for MQTT Settings ---
 echo -e "\n${YELLOW}🔧 Configuring MQTT Settings...${NC}"
@@ -86,18 +83,19 @@ else
 fi
 
 echo -e "\n${YELLOW}🔧 Saving configuration settings...${NC}"
-# Save settings (excluding passwords) for future installs
+# Save settings (including DB_PASSWORD) for future installs
 cat <<EOF > "$CONFIG_FILE"
 DB_HOST="$DB_HOST"
 DB_USER="$DB_USER"
 DB_DATABASE="$DB_DATABASE"
+DB_PASSWORD="$DB_PASSWORD"
 MQTT_BROKER="$MQTT_BROKER"
 MQTT_PORT="$MQTT_PORT"
 MQTT_USERNAME="$MQTT_USERNAME"
 EOF
-echo -e "${GREEN}✔️  Configuration settings saved (except passwords).${NC}"
+echo -e "${GREEN}✔️  Configuration settings saved.${NC}"
 
-# Store environment variables securely (now including DB_PASSWORD)
+# Store environment variables securely (including DB_PASSWORD)
 echo -e "\n${YELLOW}🔒 Storing environment variables...${NC}"
 cat <<EOF >> ~/.bashrc
 export DB_HOST="$DB_HOST"
