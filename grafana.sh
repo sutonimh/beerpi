@@ -1,10 +1,12 @@
 #!/bin/bash
-# grafana.sh - Version 1.2
+# grafana.sh - Version 1.3
 # This script uninstalls any existing Grafana installation and related configuration files,
-# then installs Grafana on a Raspberry Pi 3B+ using a prebuilt ARM package.
+# then installs Grafana on a Raspberry Pi using a prebuilt ARM package.
 # It prompts whether you are using a 32-bit or 64-bit OS (defaulting to 64-bit) and installs
-# the appropriate package. After installation, it sets up Grafana’s systemd service,
-# waits for Grafana to fully start, configures the InfluxDB datasource (pointing to the combined_sensor_db),
+# the appropriate package. For 64-bit systems, it downloads the package without the "-rpi" suffix.
+#
+# After installation, it sets up Grafana’s systemd service, waits for Grafana to fully start,
+# configures the InfluxDB datasource (pointing to the combined_sensor_db),
 # and imports a sample dashboard.
 #
 # WARNING: This script will remove any existing Grafana installation, configuration, dashboards, and datasources.
@@ -23,7 +25,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 print_sep
-echo "Starting Grafana installation script (Version 1.2) with verbose output."
+echo "Starting Grafana installation script (Version 1.3) with verbose output."
 print_sep
 
 ########################################
@@ -62,11 +64,12 @@ if [ "$arch_choice" == "32" ]; then
     grafana_package_url="https://dl.grafana.com/oss/release/grafana-rpi_9.3.2_armhf.deb"
 elif [ "$arch_choice" == "64" ]; then
     desired_arch="arm64"
-    grafana_package_url="https://dl.grafana.com/oss/release/grafana-rpi_9.3.2_arm64.deb"
+    # For 64-bit systems, the package name does not include "-rpi".
+    grafana_package_url="https://dl.grafana.com/oss/release/grafana_9.3.2_arm64.deb"
 else
     echo "Invalid choice. Defaulting to 64-bit."
     desired_arch="arm64"
-    grafana_package_url="https://dl.grafana.com/oss/release/grafana-rpi_9.3.2_arm64.deb"
+    grafana_package_url="https://dl.grafana.com/oss/release/grafana_9.3.2_arm64.deb"
 fi
 echo "Selected architecture: ${desired_arch}"
 print_sep
@@ -91,7 +94,6 @@ print_sep
 # Install Grafana via prebuilt ARM package.
 ########################################
 echo "Downloading Grafana package from: ${grafana_package_url}"
-# Remove the -q flag so progress is shown
 wget -O grafana.deb "$grafana_package_url"
 echo "Download completed."
 echo "Installing Grafana package..."
