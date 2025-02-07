@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-web_ui.py v1.8 (updated)
+web_ui.py v1.8 (revised)
 Handles the Flask web interface for BeerPi.
 - Retrieves sensor data from the MariaDB database.
 - Generates a Plotly graph from historical sensor data.
@@ -20,24 +20,27 @@ from plotly.offline import plot
 
 def get_db_password():
     """
-    Attempts to retrieve the DB_PASSWORD.
-    First, it checks the environment variable.
+    Attempts to retrieve DB_PASSWORD.
+    First, it checks the environment.
     If not set, it reads the configuration file (~/.beerpi_install_config)
-    for a line that starts with DB_PASSWORD=.
+    and parses it into a dictionary.
     """
     db_password = os.environ.get("DB_PASSWORD")
-    if not db_password:
-        config_path = os.path.expanduser("~/.beerpi_install_config")
-        try:
-            with open(config_path, "r") as f:
-                for line in f:
-                    if line.startswith("DB_PASSWORD="):
-                        # Expecting a line like: DB_PASSWORD="yourpassword"
-                        db_password = line.split("=", 1)[1].strip().strip('"')
-                        break
-        except Exception as e:
-            logging.error("Failed to read DB_PASSWORD from config: " + str(e))
-    return db_password or ""
+    if db_password:
+        return db_password
+    config_path = os.path.expanduser("~/.beerpi_install_config")
+    try:
+        with open(config_path, "r") as f:
+            lines = f.readlines()
+        config = {}
+        for line in lines:
+            if "=" in line:
+                key, value = line.split("=", 1)
+                config[key.strip()] = value.strip().strip('"')
+        return config.get("DB_PASSWORD", "")
+    except Exception as e:
+        logging.error("Failed to read DB_PASSWORD from config: " + str(e))
+    return ""
 
 # ---------------------------
 # Database Connection Settings
@@ -59,7 +62,7 @@ handler.setFormatter(formatter)
 logger = logging.getLogger("WebUI")
 logger.setLevel(logging.DEBUG)
 logger.addHandler(handler)
-logging.info("Web UI starting... (v1.8 updated)")
+logging.info("Web UI starting... (v1.8 revised)")
 
 # ---------------------------
 # Helper Function: Retrieve Latest Sensor Data
