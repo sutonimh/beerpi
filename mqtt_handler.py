@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-mqtt_handler.py v1.0
+mqtt_handler.py v1.1
 Handles all MQTT-related operations for BeerPi.
 - Manages connection with retry logic.
 - Handles message subscriptions and publishing.
-- Keeps the MQTT session alive.
+- Updates global variables for simulated sensor data.
 """
 
 import os
@@ -12,6 +12,10 @@ import time
 import logging
 import paho.mqtt.client as mqtt
 from logging.handlers import RotatingFileHandler
+
+# Global variables to store sensor data
+current_temperature = None
+current_relay_state = "Unknown"
 
 # ---------------------------
 # Logging Configuration
@@ -23,7 +27,7 @@ handler.setFormatter(formatter)
 logger = logging.getLogger("MQTT")
 logger.setLevel(logging.DEBUG)
 logger.addHandler(handler)
-logging.info("MQTT Handler starting... (v1.0)")
+logging.info("MQTT Handler starting... (v1.1)")
 
 # ---------------------------
 # MQTT Configuration
@@ -45,12 +49,22 @@ def on_connect(client, userdata, flags, rc):
     if rc == 0:
         logging.info(f"Connected to MQTT broker at {MQTT_BROKER}:{MQTT_PORT}")
         client.publish("home/beerpi/status", "online", retain=True)
-        client.subscribe("home/beerpi/config/#")  # Subscribe to configuration updates
+        # Subscribe to configuration updates and sensor topics
+        client.subscribe("home/beerpi/config/#")
+        client.subscribe("home/beerpi/temperature")
+        client.subscribe("home/beerpi/relay_state")
     else:
         logging.error(f"Failed to connect to MQTT broker, return code {rc}")
 
 def on_message(client, userdata, msg):
-    logging.info(f"Received MQTT message: {msg.topic} -> {msg.payload.decode()}")
+    global current_temperature, current_relay_state
+    payload = msg.payload.decode()
+    logging.info(f"Received MQTT message: {msg.topic} -> {payload}")
+    # Update global variables based on topic
+    if msg.topic == "home/beerpi/temperature":
+        current_temperature = payload
+    elif msg.topic == "home/beerpi/relay_state":
+        current_relay_state = payload
 
 # Assign callbacks
 mqtt_client.on_connect = on_connect
@@ -78,7 +92,7 @@ for attempt in range(max_retries):
 # Helper Function to Publish Messages
 # ---------------------------
 def publish_message(topic, message, retain=False):
-    """ Publishes a message to an MQTT topic. """
+    """Publishes a message to an MQTT topic."""
     try:
         mqtt_client.publish(topic, message, retain=retain)
         logging.info(f"Published to {topic}: {message}")
