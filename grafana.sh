@@ -2,20 +2,23 @@
 # grafana.sh - Version 2.4
 # This merged script sets up Grafana on a Raspberry Pi by performing the following:
 #
-# 1. Prompts for Grafana admin username and password (default: admin/admin).
-# 2. Auto-detects the system architecture and selects the correct Grafana package URL.
-# 3. If Grafana is not already installed (or if the version is different), it cleans up all related directories and installs the package.
-#    Otherwise, it preserves /usr/share/grafana and /var/lib/grafana, removing only /etc/grafana.
-# 4. Always removes the systemd unit file and deletes any existing dashboard/datasource via the API.
+# 1. Prompts for Grafana admin username and password (default: admin/admin)
+# 2. Auto-detects the system architecture (32-bit or 64-bit) and selects the correct Grafana package URL
+# 3. If Grafana is not already installed or the version is different, it purges and installs the package.
+#    If Grafana is already installed (with version 9.3.2), it skips package reinstallation and preserves /etc/grafana.
+# 4. Always removes the systemd unit file (to force recreation) and deletes any existing dashboard/datasource via the API.
 # 5. Creates (or recreates) the systemd unit file and ensures the Grafana system user exists.
-# 6. Force-updates /etc/grafana/grafana.ini by copying the defaults (if available) and appending a [security] section with your credentials.
-# 7. Fixes ownership for /usr/share/grafana (if it exists).
-# 8. Restarts Grafana to apply the new configuration.
+# 6. Updates /etc/grafana/grafana.ini:
+#    - If a fresh install, it removes /etc/grafana first; otherwise, it preserves it.
+#    - Then, it forces an update of the [security] section to set admin_user and admin_password.
+# 7. Fixes ownership for /usr/share/grafana (creating it if needed).
+# 8. Restarts Grafana to apply configuration changes.
 # 9. Performs a one-time API health check and verifies credentials via a test search.
-# 10. Imports the InfluxDB datasource and BeerPi Temperature dashboard via the Grafana API.
-# 11. Verifies that the datasource and dashboard have been imported.
+# 10. Imports the InfluxDB datasource and BeerPi Temperature dashboard via Grafana’s API.
+# 11. Verifies by querying the API that both the datasource and dashboard are present.
 #
-# WARNING: This script will remove /etc/grafana if a reinstall is triggered.
+# WARNING: This script will remove the systemd unit file and delete dashboards/datasources via the API.
+# It will only purge /etc/grafana if Grafana is not already installed.
 #
 set -e
 
@@ -50,7 +53,7 @@ echo "Using Grafana admin credentials: ${grafana_user} / ${grafana_pass}"
 print_sep
 
 ########################################
-# Clean slate for systemd unit and API objects.
+# Remove the systemd unit file and API objects.
 ########################################
 echo "Removing Grafana systemd unit file if present..."
 rm -f /lib/systemd/system/grafana-server.service
@@ -174,31 +177,37 @@ print_sep
 ########################################
 # Update Grafana configuration to set admin credentials.
 ########################################
-echo "Forcing Grafana configuration update..."
-# If we are installing fresh, remove /etc/grafana entirely; otherwise, preserve existing /etc/grafana.
+echo "Updating Grafana configuration with admin credentials..."
+# Only remove /etc/grafana if we are installing a fresh package.
 if [ "$skip_install" -eq 0 ]; then
     rm -rf /etc/grafana
 fi
 mkdir -p /etc/grafana
-if [ -f /usr/share/grafana/conf/defaults.ini ]; then
-    cp /usr/share/grafana/conf/defaults.ini /etc/grafana/grafana.ini
+if [ -f /etc/grafana/grafana.ini ]; then
+    echo "Found existing /etc/grafana/grafana.ini; updating [security] section..."
+    # Use sed to update admin_user and admin_password
+    sed -i "s/^;*admin_user.*/admin_user = ${grafana_user}/" /etc/grafana/grafana.ini || true
+    sed -i "s/^;*admin_password.*/admin_password = ${grafana_pass}/" /etc/grafana/grafana.ini || true
 else
-    echo "WARNING: /usr/share/grafana/conf/defaults.ini not found. Creating an empty configuration file."
-    touch /etc/grafana/grafana.ini
-fi
-cat <<EOF >> /etc/grafana/grafana.ini
+    if [ -f /usr/share/grafana/conf/defaults.ini ]; then
+        cp /usr/share/grafana/conf/defaults.ini /etc/grafana/grafana.ini
+    else
+        echo "WARNING: Defaults file not found; creating a minimal configuration."
+        touch /etc/grafana/grafana.ini
+    fi
+    cat <<EOF >> /etc/grafana/grafana.ini
 
 [security]
 admin_user = ${grafana_user}
 admin_password = ${grafana_pass}
 EOF
-echo "Grafana configuration updated with provided credentials."
+fi
+echo "Grafana configuration updated."
 print_sep
 
 ########################################
 # Fix ownership of Grafana directories.
 ########################################
-# Do not remove /usr/share/grafana if it exists.
 if [ ! -d /usr/share/grafana ]; then
     echo "Warning: /usr/share/grafana does not exist. Creating it..."
     mkdir -p /usr/share/grafana
