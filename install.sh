@@ -1,8 +1,10 @@
 #!/bin/bash
-# install.sh v3.3
+# install.sh v3.5
 # - Optimized for faster reinstalls
 # - Skips reinstalling packages and venv if they already exist
 # - Pulls only the latest Git changes instead of full re-clone
+# - Installs and configures MariaDB when the database host is localhost
+# - Tests the database connection before continuing
 
 set -e  # Exit on error
 
@@ -37,19 +39,35 @@ echo ""
 read -p "Enter Database Name [$DB_DATABASE]: " input
 DB_DATABASE="${input:-${DB_DATABASE:-beerpi_db}}"
 
-echo -e "\n${YELLOW}🔧 Configuring MQTT Settings...${NC}"
-read -p "Enter MQTT Broker Address [$MQTT_BROKER]: " input
-MQTT_BROKER="${input:-${MQTT_BROKER:-}}"
+# --- MariaDB Installation and Configuration (if using localhost) ---
+if [ "$DB_HOST" == "localhost" ]; then
+    echo -e "\n${YELLOW}🔧 Database host is set to localhost.${NC}"
+    echo -e "${YELLOW}🔧 Installing MariaDB Server...${NC}"
+    sudo apt update && sudo apt install -y mariadb-server
+    echo -e "${GREEN}✔️  MariaDB Server installed.${NC}"
 
-read -p "Enter MQTT Broker Port (default: 1883): " input
-MQTT_PORT="${input:-1883}"
+    echo -e "\n${YELLOW}🔧 Configuring MariaDB for BeerPi...${NC}"
+    echo -e "${YELLOW}🔧 Creating database '${DB_DATABASE}' (if it doesn't exist)...${NC}"
+    sudo mysql -e "CREATE DATABASE IF NOT EXISTS \`${DB_DATABASE}\`;" && echo -e "${GREEN}✔️  Database '${DB_DATABASE}' ensured.${NC}"
+    
+    echo -e "${YELLOW}🔧 Creating user '${DB_USER}' (if it doesn't exist) and setting its password...${NC}"
+    sudo mysql -e "CREATE USER IF NOT EXISTS '${DB_USER}'@'localhost' IDENTIFIED BY '${DB_PASSWORD}';" && echo -e "${GREEN}✔️  User '${DB_USER}' ensured.${NC}"
+    
+    echo -e "${YELLOW}🔧 Granting privileges on '${DB_DATABASE}' to user '${DB_USER}'...${NC}"
+    sudo mysql -e "GRANT ALL PRIVILEGES ON \`${DB_DATABASE}\`.* TO '${DB_USER}'@'localhost';"
+    sudo mysql -e "FLUSH PRIVILEGES;" && echo -e "${GREEN}✔️  Privileges granted and flushed.${NC}"
+fi
 
-read -p "Enter MQTT Username [$MQTT_USERNAME]: " input
-MQTT_USERNAME="${input:-${MQTT_USERNAME:-}}"
+# --- Test the Database Connection ---
+echo -e "\n${YELLOW}🔍 Testing database connection to '${DB_DATABASE}' on host '${DB_HOST}'...${NC}"
+if mysql -h "$DB_HOST" -u "$DB_USER" -p"$DB_PASSWORD" -e "USE \`${DB_DATABASE}\`;" >/dev/null 2>&1; then
+    echo -e "${GREEN}✔️  Database connection successful.${NC}"
+else
+    echo -e "${RED}❌ Failed to connect to the database. Please check your configuration.${NC}"
+    exit 1
+fi
 
-read -s -p "Enter MQTT Password: " MQTT_PASSWORD
-echo ""
-
+echo -e "\n${YELLOW}🔧 Saving database configuration settings...${NC}"
 # Save settings (excluding passwords) for future installs
 cat <<EOF > "$CONFIG_FILE"
 DB_HOST="$DB_HOST"
