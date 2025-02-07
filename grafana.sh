@@ -1,18 +1,19 @@
 #!/bin/bash
-# grafana.sh - Version 1.16
+# grafana.sh - Version 1.17
 # This script sets up Grafana on a Raspberry Pi by performing the following:
 #  - Prompts for Grafana admin username and password (default: admin/admin)
 #  - Auto-detects the system architecture (32-bit or 64-bit) and selects the correct Grafana package URL
 #  - Removes any previous Grafana installation and configuration files
 #  - Installs Grafana from the prebuilt ARM package
 #  - Updates /etc/grafana/grafana.ini with the provided admin credentials to avoid forced password resets
-#  - Fixes directory ownership for Grafana
+#  - Fixes directory ownership for Grafana (/usr/share/grafana)
 #  - Creates and starts the Grafana systemd service
-#  - Waits until Grafana’s API (/api/health) reports healthy ("database" : "ok")
-#  - Calls a secondary import script (grafana_import.sh) with explicit username/password arguments
-#  - Verifies that the InfluxDB datasource and BeerPi Temperature dashboard are present by querying the Grafana API
+#  - Performs a single health check of Grafana’s API (/api/health)
+#  - Calls a secondary import script (grafana_import.sh) to configure the InfluxDB datasource and import the dashboard
+#  - Verifies that the datasource and dashboard are present by querying the Grafana API
 #
-# WARNING: This script will remove any existing Grafana installation, configuration, dashboards, and datasources.
+# WARNING: This script will remove any existing Grafana installation, configuration,
+# dashboards, and datasources.
 #
 set -e
 
@@ -28,7 +29,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 print_sep
-echo "Starting Grafana installation script (Version 1.16) with verbose output."
+echo "Starting Grafana installation script (Version 1.17) with minimal delays."
 print_sep
 
 ########################################
@@ -179,7 +180,7 @@ fi
 print_sep
 
 ########################################
-# Fix ownership of Grafana directories to prevent permission errors.
+# Fix ownership of Grafana directories.
 ########################################
 echo "Ensuring correct ownership for /usr/share/grafana..."
 chown -R grafana:grafana /usr/share/grafana || { echo "Failed to fix ownership on /usr/share/grafana"; exit 1; }
@@ -203,25 +204,11 @@ chown -R grafana:grafana /usr/share/grafana || { echo "Failed to fix ownership o
 print_sep
 
 ########################################
-# Wait for Grafana API to be available.
+# Quick health check of Grafana API.
 ########################################
-echo "Waiting for Grafana API to become available..."
+echo "Performing a one-time Grafana API health check..."
 HEALTH=$(curl -s http://localhost:3000/api/health)
 echo "Grafana API health check returned: ${HEALTH}"
-retry=0
-max_retries=30
-until echo "$HEALTH" | grep -E -q '"database"[[:space:]]*:[[:space:]]*"ok"'; do
-    echo "Grafana API not ready. Waiting 5 seconds... (retry: $((retry+1))/$max_retries)"
-    sleep 5
-    HEALTH=$(curl -s http://localhost:3000/api/health)
-    echo "Grafana API health check returned: ${HEALTH}"
-    retry=$((retry+1))
-    if [ $retry -ge $max_retries ]; then
-        echo "ERROR: Grafana API did not become ready after $max_retries retries."
-        exit 1
-    fi
-done
-echo "Grafana API is available."
 print_sep
 
 ########################################
