@@ -1,5 +1,5 @@
 #!/bin/bash
-# grafana.sh - Version 1.10
+# grafana.sh - Version 1.11
 # This script sets up Grafana on a Raspberry Pi by performing the following:
 #  - Prompts for Grafana admin username and password (default: admin/admin)
 #  - Auto-detects the system architecture (32-bit or 64-bit) and selects the correct Grafana package URL
@@ -8,9 +8,9 @@
 #  - Updates /etc/grafana/grafana.ini with the provided admin credentials to avoid forced password resets
 #  - Ensures correct directory ownership for Grafana
 #  - Creates and starts the Grafana systemd service
-#  - Waits until Grafana’s API is fully available (by polling /api/health)
+#  - Waits until Grafana’s API (/api/health) returns a healthy status (checks for "database":"ok")
 #  - Configures an InfluxDB datasource (pointing to the combined_sensor_db) via the API and checks the result
-#  - Imports the BeerPi Temperature dashboard (which displays the temperature data) and checks the result
+#  - Imports the BeerPi Temperature dashboard (which displays the temperature data) via the API and checks the result
 #
 # WARNING: This script will remove any existing Grafana installation, configuration, dashboards, and datasources.
 #
@@ -28,7 +28,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 print_sep
-echo "Starting Grafana installation script (Version 1.10) with verbose output."
+echo "Starting Grafana installation script (Version 1.11) with verbose output."
 print_sep
 
 ########################################
@@ -201,9 +201,21 @@ print_sep
 # Wait for Grafana API to be available.
 ########################################
 echo "Waiting for Grafana API to become available..."
-until curl -s http://${grafana_user}:${grafana_pass}@localhost:3000/api/health | grep -q '"database":"ok"'; do
-    echo "Grafana API not ready. Waiting 5 seconds..."
+# Poll the /api/health endpoint without credentials.
+HEALTH=$(curl -s http://localhost:3000/api/health)
+echo "Grafana API health check returned: ${HEALTH}"
+retry=0
+max_retries=30
+until echo "$HEALTH" | grep -q '"database":"ok"'; do
+    echo "Grafana API not ready. Waiting 5 seconds... (retry: $((retry+1))/$max_retries)"
     sleep 5
+    HEALTH=$(curl -s http://localhost:3000/api/health)
+    echo "Grafana API health check returned: ${HEALTH}"
+    retry=$((retry+1))
+    if [ $retry -ge $max_retries ]; then
+        echo "ERROR: Grafana API did not become ready after $max_retries retries."
+        exit 1
+    fi
 done
 echo "Grafana API is available."
 print_sep
