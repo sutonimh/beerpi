@@ -8,7 +8,7 @@
 #  - Updates /etc/grafana/grafana.ini with the provided admin credentials to avoid forced password resets
 #  - Ensures correct directory ownership for Grafana
 #  - Creates and starts the Grafana systemd service
-#  - Waits until Grafana’s API (/api/health) reports healthy ("database":"ok")
+#  - Waits until Grafana’s API (/api/health) reports healthy ("database" : "ok")
 #  - Calls a secondary import script (grafana_import.sh) to configure the InfluxDB datasource and import the dashboard
 #
 # WARNING: This script will remove any existing Grafana installation, configuration, dashboards, and datasources.
@@ -200,11 +200,12 @@ print_sep
 # Wait for Grafana API to be available.
 ########################################
 echo "Waiting for Grafana API to become available..."
+# Poll the /api/health endpoint using a regex that allows whitespace between tokens.
 HEALTH=$(curl -s http://localhost:3000/api/health)
 echo "Grafana API health check returned: ${HEALTH}"
 retry=0
 max_retries=30
-until echo "$HEALTH" | grep -q '"database":"ok"'; do
+until echo "$HEALTH" | grep -E -q '"database"[[:space:]]*:[[:space:]]*"ok"'; do
     echo "Grafana API not ready. Waiting 5 seconds... (retry: $((retry+1))/$max_retries)"
     sleep 5
     HEALTH=$(curl -s http://localhost:3000/api/health)
