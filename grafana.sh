@@ -1,21 +1,22 @@
 #!/bin/bash
-# grafana.sh - Version 1.9
+# grafana.sh - Version 1.10
 # This script sets up Grafana on a Raspberry Pi by performing the following:
 #  - Prompts for Grafana admin username and password (default: admin/admin)
 #  - Auto-detects the system architecture (32-bit or 64-bit) and selects the correct Grafana package URL
-#  - Removes any existing Grafana installation and configuration files
+#  - Removes any previous Grafana installation and configuration files
 #  - Installs Grafana from the prebuilt ARM package
 #  - Updates /etc/grafana/grafana.ini with the provided admin credentials to avoid forced password resets
-#  - Ensures correct directory ownership for Grafana (so that data can be written)
+#  - Ensures correct directory ownership for Grafana
 #  - Creates and starts the Grafana systemd service
-#  - Configures an InfluxDB datasource (pointing to the combined_sensor_db)
-#  - Imports the BeerPi Temperature dashboard (which displays the temperature data)
+#  - Waits until Grafana’s API is fully available (by polling /api/health)
+#  - Configures an InfluxDB datasource (pointing to the combined_sensor_db) via the API and checks the result
+#  - Imports the BeerPi Temperature dashboard (which displays the temperature data) and checks the result
 #
 # WARNING: This script will remove any existing Grafana installation, configuration, dashboards, and datasources.
 #
 set -e
 
-# Function to print a separator for clarity.
+# Function to print a separator.
 print_sep() {
     echo "----------------------------------------"
 }
@@ -27,7 +28,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 print_sep
-echo "Starting Grafana installation script (Version 1.9) with verbose output."
+echo "Starting Grafana installation script (Version 1.10) with verbose output."
 print_sep
 
 ########################################
@@ -65,7 +66,6 @@ rm -rf /etc/grafana /usr/share/grafana /var/lib/grafana
 echo "Attempting to delete any existing Grafana dashboard/datasource via API..."
 curl -s -X DELETE http://${grafana_user}:${grafana_pass}@localhost:3000/api/dashboards/uid/temperature_dashboard || true
 curl -s -X DELETE http://${grafana_user}:${grafana_pass}@localhost:3000/api/datasources/name/InfluxDB || true
-
 print_sep
 
 ########################################
@@ -100,7 +100,6 @@ if command -v grafana-server > /dev/null; then
         echo "Grafana is already installed with the desired architecture ($installed_arch)."
     fi
 fi
-
 print_sep
 
 ########################################
@@ -199,10 +198,14 @@ systemctl status grafana-server --no-pager
 print_sep
 
 ########################################
-# Wait for Grafana to fully start.
+# Wait for Grafana API to be available.
 ########################################
-echo "Waiting 30 seconds for Grafana to fully start..."
-sleep 30
+echo "Waiting for Grafana API to become available..."
+until curl -s http://${grafana_user}:${grafana_pass}@localhost:3000/api/health | grep -q '"database":"ok"'; do
+    echo "Grafana API not ready. Waiting 5 seconds..."
+    sleep 5
+done
+echo "Grafana API is available."
 print_sep
 
 ########################################
@@ -221,8 +224,13 @@ DS_PAYLOAD=$(cat <<EOF
 EOF
 )
 echo "Sending datasource configuration to Grafana API..."
-curl -s -X POST -H "Content-Type: application/json" -d "${DS_PAYLOAD}" http://${grafana_user}:${grafana_pass}@localhost:3000/api/datasources
-echo "Datasource configuration completed."
+DS_RESPONSE=$(curl -s -X POST -H "Content-Type: application/json" -d "${DS_PAYLOAD}" http://${grafana_user}:${grafana_pass}@localhost:3000/api/datasources)
+echo "Datasource API response: ${DS_RESPONSE}"
+if echo "$DS_RESPONSE" | grep -q '"message":"Datasource added"'; then
+    echo "Datasource configured successfully."
+else
+    echo "WARNING: Datasource configuration may have failed. Please check the response above."
+fi
 print_sep
 
 ########################################
@@ -274,8 +282,13 @@ DASHBOARD_JSON=$(cat <<'EOF'
 EOF
 )
 echo "Sending dashboard JSON to Grafana API..."
-curl -s -X POST -H "Content-Type: application/json" -d "${DASHBOARD_JSON}" http://${grafana_user}:${grafana_pass}@localhost:3000/api/dashboards/db
-echo "Dashboard imported successfully."
+DB_RESPONSE=$(curl -s -X POST -H "Content-Type: application/json" -d "${DASHBOARD_JSON}" http://${grafana_user}:${grafana_pass}@localhost:3000/api/dashboards/db)
+echo "Dashboard API response: ${DB_RESPONSE}"
+if echo "$DB_RESPONSE" | grep -q '"status":"success"'; then
+    echo "Dashboard imported successfully."
+else
+    echo "WARNING: Dashboard import may have failed. Please check the response above."
+fi
 print_sep
 
 echo "Grafana installation and dashboard configuration complete."
