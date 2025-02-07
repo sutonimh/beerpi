@@ -1,22 +1,21 @@
 #!/bin/bash
-# grafana.sh - Version 2.3
+# grafana.sh - Version 2.4
 # This merged script sets up Grafana on a Raspberry Pi by performing the following:
 #
-# 1. Prompts for Grafana admin username and password (default: admin/admin)
-# 2. Auto-detects the system architecture (32-bit or 64-bit) and selects the correct Grafana package URL
-# 3. If Grafana is not already installed, it removes previous configuration directories and installs the package.
-#    If Grafana is already installed, it skips purging the package and preserves existing configuration/data.
-# 4. Always removes the systemd unit file (to force recreation) and deletes any existing dashboard/datasource via the API.
+# 1. Prompts for Grafana admin username and password (default: admin/admin).
+# 2. Auto-detects the system architecture and selects the correct Grafana package URL.
+# 3. If Grafana is not already installed (or if the version is different), it cleans up all related directories and installs the package.
+#    Otherwise, it preserves /usr/share/grafana and /var/lib/grafana, removing only /etc/grafana.
+# 4. Always removes the systemd unit file and deletes any existing dashboard/datasource via the API.
 # 5. Creates (or recreates) the systemd unit file and ensures the Grafana system user exists.
-# 6. Force-updates /etc/grafana/grafana.ini by copying defaults (if available) and appending a [security] section with your credentials.
-# 7. Fixes ownership for /usr/share/grafana.
-# 8. Restarts Grafana to apply configuration changes.
-# 9. Performs a one-time API health check and verifies credentials with a test search.
+# 6. Force-updates /etc/grafana/grafana.ini by copying the defaults (if available) and appending a [security] section with your credentials.
+# 7. Fixes ownership for /usr/share/grafana (if it exists).
+# 8. Restarts Grafana to apply the new configuration.
+# 9. Performs a one-time API health check and verifies credentials via a test search.
 # 10. Imports the InfluxDB datasource and BeerPi Temperature dashboard via the Grafana API.
-# 11. Verifies that the datasource and dashboard are present.
+# 11. Verifies that the datasource and dashboard have been imported.
 #
-# WARNING: This script will delete the systemd unit file and remove dashboards/datasources via the API.
-# It will purge configuration directories only if Grafana is not already installed.
+# WARNING: This script will remove /etc/grafana if a reinstall is triggered.
 #
 set -e
 
@@ -32,7 +31,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 print_sep
-echo "Starting Grafana installation script (Version 2.3) with minimal delays."
+echo "Starting Grafana installation script (Version 2.4) with minimal delays."
 print_sep
 
 ########################################
@@ -173,10 +172,10 @@ fi
 print_sep
 
 ########################################
-# Force-update Grafana configuration from defaults and set admin credentials.
+# Update Grafana configuration to set admin credentials.
 ########################################
 echo "Forcing Grafana configuration update..."
-# Only remove configuration directories if package is not already installed.
+# If we are installing fresh, remove /etc/grafana entirely; otherwise, preserve existing /etc/grafana.
 if [ "$skip_install" -eq 0 ]; then
     rm -rf /etc/grafana
 fi
@@ -199,11 +198,12 @@ print_sep
 ########################################
 # Fix ownership of Grafana directories.
 ########################################
-echo "Ensuring correct ownership for /usr/share/grafana..."
+# Do not remove /usr/share/grafana if it exists.
 if [ ! -d /usr/share/grafana ]; then
     echo "Warning: /usr/share/grafana does not exist. Creating it..."
     mkdir -p /usr/share/grafana
 fi
+echo "Ensuring correct ownership for /usr/share/grafana..."
 chown -R grafana:grafana /usr/share/grafana || { echo "Failed to fix ownership on /usr/share/grafana"; exit 1; }
 print_sep
 
