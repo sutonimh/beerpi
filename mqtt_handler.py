@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-mqtt_handler.py v1.1
+mqtt_handler.py v1.2
 Handles all MQTT-related operations for BeerPi.
-- Manages connection with retry logic.
-- Handles message subscriptions and publishing.
-- Updates global variables for simulated sensor data.
+- Publishes sensor data for use in HomeAssistant.
+- Minimal subscription functionality is retained (for configuration, etc.).
+- Maintains a global variable 'data_mode' indicating "Live Data" or "Simulated Data".
 """
 
 import os
@@ -13,9 +13,8 @@ import logging
 import paho.mqtt.client as mqtt
 from logging.handlers import RotatingFileHandler
 
-# Global variables to store sensor data
-current_temperature = None
-current_relay_state = "Unknown"
+# Global variable to indicate the current data mode.
+data_mode = "Unknown"
 
 # ---------------------------
 # Logging Configuration
@@ -27,7 +26,7 @@ handler.setFormatter(formatter)
 logger = logging.getLogger("MQTT")
 logger.setLevel(logging.DEBUG)
 logger.addHandler(handler)
-logging.info("MQTT Handler starting... (v1.1)")
+logging.info("MQTT Handler starting... (v1.2)")
 
 # ---------------------------
 # MQTT Configuration
@@ -38,41 +37,25 @@ MQTT_USERNAME = os.getenv('MQTT_USERNAME', 'ha_mqtt')
 MQTT_PASSWORD = os.getenv('MQTT_PASSWORD', 'stuffNthings')
 
 mqtt_client = mqtt.Client(client_id="beerpi", clean_session=False)
-
 if MQTT_USERNAME and MQTT_PASSWORD:
     mqtt_client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
 
-# ---------------------------
-# MQTT Callbacks
-# ---------------------------
 def on_connect(client, userdata, flags, rc):
     if rc == 0:
-        logging.info(f"Connected to MQTT broker at {MQTT_BROKER}:{MQTT_PORT}")
+        logging.info("Connected to MQTT broker at %s:%s", MQTT_BROKER, MQTT_PORT)
         client.publish("home/beerpi/status", "online", retain=True)
-        # Subscribe to configuration updates and sensor topics
+        # Subscribe to configuration topics if needed.
         client.subscribe("home/beerpi/config/#")
-        client.subscribe("home/beerpi/temperature")
-        client.subscribe("home/beerpi/relay_state")
     else:
-        logging.error(f"Failed to connect to MQTT broker, return code {rc}")
+        logging.error("Failed to connect to MQTT broker, return code %s", rc)
 
 def on_message(client, userdata, msg):
-    global current_temperature, current_relay_state
-    payload = msg.payload.decode()
-    logging.info(f"Received MQTT message: {msg.topic} -> {payload}")
-    # Update global variables based on topic
-    if msg.topic == "home/beerpi/temperature":
-        current_temperature = payload
-    elif msg.topic == "home/beerpi/relay_state":
-        current_relay_state = payload
+    # Minimal processing: simply log any incoming messages.
+    logging.info("Received MQTT message: %s -> %s", msg.topic, msg.payload.decode())
 
-# Assign callbacks
 mqtt_client.on_connect = on_connect
 mqtt_client.on_message = on_message
 
-# ---------------------------
-# MQTT Connection with Retry Logic
-# ---------------------------
 max_retries = 5
 retry_delay = 5  # seconds
 
@@ -82,19 +65,16 @@ for attempt in range(max_retries):
         mqtt_client.loop_start()
         break
     except Exception as e:
-        logging.error(f"MQTT Connection Failed ({attempt+1}/{max_retries}): {e}")
+        logging.error("MQTT Connection Failed (%s/%s): %s", attempt+1, max_retries, e)
         if attempt < max_retries - 1:
             time.sleep(retry_delay)
         else:
             logging.critical("Failed to connect to MQTT after multiple attempts. Continuing without MQTT.")
 
-# ---------------------------
-# Helper Function to Publish Messages
-# ---------------------------
 def publish_message(topic, message, retain=False):
     """Publishes a message to an MQTT topic."""
     try:
         mqtt_client.publish(topic, message, retain=retain)
-        logging.info(f"Published to {topic}: {message}")
+        logging.info("Published to %s: %s", topic, message)
     except Exception as e:
-        logging.error(f"Failed to publish message to {topic}: {e}")
+        logging.error("Failed to publish message to %s: %s", topic, e)
