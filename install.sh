@@ -1,11 +1,12 @@
 #!/bin/bash
-# install.sh v3.7
+# install.sh v3.8
 # - Optimized for faster reinstalls
 # - Skips reinstalling packages and venv if they already exist
 # - Pulls only the latest Git changes instead of full re-clone
 # - Installs and configures MariaDB when the database host is localhost
 # - Tests the database connection before continuing
 # - Prompts for MQTT settings (broker, port, username, and password)
+# - Exports DB_PASSWORD to ~/.bashrc so web_ui.py can connect to MariaDB
 # - Informs the user if no temperature sensor is detected (simulated data will be used)
 
 set -e  # Exit on error
@@ -92,12 +93,13 @@ MQTT_USERNAME="$MQTT_USERNAME"
 EOF
 echo -e "${GREEN}✔️  Configuration settings saved (except passwords).${NC}"
 
-# Store environment variables securely
+# Store environment variables securely (now including DB_PASSWORD)
 echo -e "\n${YELLOW}🔒 Storing environment variables...${NC}"
 cat <<EOF >> ~/.bashrc
 export DB_HOST="$DB_HOST"
 export DB_USER="$DB_USER"
 export DB_DATABASE="$DB_DATABASE"
+export DB_PASSWORD="$DB_PASSWORD"
 export MQTT_BROKER="$MQTT_BROKER"
 export MQTT_PORT="$MQTT_PORT"
 export MQTT_USERNAME="$MQTT_USERNAME"
