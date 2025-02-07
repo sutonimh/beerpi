@@ -1,150 +1,201 @@
 #!/usr/bin/env python3
 """
-beerpi.py - BeerPi Project
-
-This script does the following:
-  • Reads temperature from a DS18B20 sensor attached via the Raspberry Pi’s 1-Wire interface.
-  • Reads (or simulates) the relay state from a designated GPIO pin.
-  • Writes the temperature and relay state into InfluxDB.
-  • Publishes the sensor values via MQTT for Home Assistant integration.
-
-Requirements:
-  - Enable 1-Wire on your Raspberry Pi (typically via /boot/config.txt and dtoverlay=w1-gpio).
-  - The DS18B20 sensor should appear under /sys/bus/w1/devices/28-*.
-  - Python packages: paho-mqtt, influxdb-client, and (optionally) RPi.GPIO.
-    Install with: pip install paho-mqtt influxdb-client RPi.GPIO
-
-Configuration:
-  - All credentials and connection settings (for MQTT and InfluxDB) are read from environment variables.
-    Alternatively, you can hardcode them below.
-
-MQTT is used only to publish data for Home Assistant.
-Sensor data comes directly from the physical DS18B20 sensor.
+BeerPi - Monitor DS18B20 temperature and relay state, publish via MQTT,
+send data to InfluxDB, and support Home Assistant auto discovery.
 """
 
 import os
-import time
 import glob
+import time
+import json
 import logging
+from logging.handlers import RotatingFileHandler
+import signal
+import sys
+
+# Import MQTT client
 import paho.mqtt.client as mqtt
+
+# Import InfluxDB client for InfluxDB 2.x
 from influxdb_client import InfluxDBClient, Point, WritePrecision
 
-# Attempt to import RPi.GPIO for relay state reading; if not available, we'll simulate.
+# Try importing RPi.GPIO; if not available (for testing on non-RPi systems), simulate
 try:
     import RPi.GPIO as GPIO
-    GPIO_AVAILABLE = True
 except ImportError:
-    GPIO_AVAILABLE = False
+    # Simulation for non-RPi environment
+    class GPIO:
+        BCM = BOARD = OUT = IN = None
+        @staticmethod
+        def setmode(mode): pass
+        @staticmethod
+        def setup(pin, mode): pass
+        @staticmethod
+        def output(pin, value): pass
+        @staticmethod
+        def input(pin):
+            # Simulate a relay off (0) by default
+            return 0
+        @staticmethod
+        def cleanup(): pass
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s")
+# Read configuration values from environment variables.
+# These values are set in the installation script and loaded from ~/.beerpi_install_config.
+MQTT_BROKER_HOST       = os.environ.get("MQTT_BROKER_HOST", "localhost")
+MQTT_BROKER_PORT       = int(os.environ.get("MQTT_BROKER_PORT", "1883"))
+MQTT_TOPIC_TEMPERATURE = os.environ.get("MQTT_TOPIC_TEMPERATURE", "beerpi/temperature")
+MQTT_TOPIC_RELAY       = os.environ.get("MQTT_TOPIC_RELAY", "beerpi/relay")
 
-# ----- Configuration Settings -----
-# MQTT settings (used to publish to Home Assistant)
-MQTT_BROKER   = os.environ.get("MQTT_BROKER", "192.168.5.12")
-MQTT_PORT     = int(os.environ.get("MQTT_PORT", "1883"))
-MQTT_USERNAME = os.environ.get("MQTT_USERNAME", "ha_mqtt")
-MQTT_PASSWORD = os.environ.get("MQTT_PASSWORD", "your_mqtt_password")
-
-# InfluxDB settings (for InfluxDB 2.x)
 INFLUX_URL    = os.environ.get("INFLUX_URL", "http://localhost:8086")
-INFLUX_TOKEN  = os.environ.get("INFLUX_TOKEN", "your_influx_token")
-INFLUX_ORG    = os.environ.get("INFLUX_ORG", "your_org")
+INFLUX_ORG    = os.environ.get("INFLUX_ORG", "beerpi")
 INFLUX_BUCKET = os.environ.get("INFLUX_BUCKET", "beerpi")
+INFLUX_TOKEN  = os.environ.get("INFLUX_TOKEN", "")
 
-# DS18B20 sensor detection: sensor directories begin with "28-"
-def detect_temp_sensor():
-    sensor_dirs = glob.glob('/sys/bus/w1/devices/28-*')
-    if sensor_dirs:
-        return sensor_dirs[0]
-    else:
-        return None
+# Poll interval in seconds (default 5 seconds)
+POLL_INTERVAL = float(os.environ.get("POLL_INTERVAL", "5"))
 
-def read_temp_sensor(sensor_path):
+# GPIO pin for relay (default 27)
+GPIO_RELAY_PIN = int(os.environ.get("GPIO_RELAY_PIN", "27"))
+
+# Log file configuration
+LOG_FILE = os.environ.get("LOG_FILE", "/var/log/beerpi.log")
+LOG_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
+LOG_BACKUP_COUNT = 7
+
+# Set up logging with a rotating file handler.
+logger = logging.getLogger("BeerPi")
+logger.setLevel(logging.INFO)
+handler = RotatingFileHandler(LOG_FILE, maxBytes=LOG_MAX_BYTES, backupCount=LOG_BACKUP_COUNT)
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+
+# Set up InfluxDB client
+influx_client = InfluxDBClient(url=INFLUX_URL, token=INFLUX_TOKEN, org=INFLUX_ORG)
+write_api = influx_client.write_api(write_options=WritePrecision.S)
+
+# Set up MQTT client
+mqtt_client = mqtt.Client()
+mqtt_client.connect(MQTT_BROKER_HOST, MQTT_BROKER_PORT, 60)
+
+def publish_homeassistant_discovery():
+    """Publish Home Assistant MQTT auto discovery messages for temperature and relay."""
+    # Temperature sensor discovery message
+    temp_config_topic = "homeassistant/sensor/beerpi_temperature/config"
+    temp_config_payload = {
+        "name": "BeerPi Temperature",
+        "state_topic": MQTT_TOPIC_TEMPERATURE,
+        "unit_of_measurement": "°C",
+        "device_class": "temperature",
+        "unique_id": "beerpi_temperature",
+        "value_template": "{{ value_json.temperature }}"
+    }
+    mqtt_client.publish(temp_config_topic, json.dumps(temp_config_payload))
+    logger.info("Published Home Assistant auto discovery for temperature sensor.")
+
+    # Relay state discovery message (as a binary sensor)
+    relay_config_topic = "homeassistant/binary_sensor/beerpi_relay/config"
+    relay_config_payload = {
+        "name": "BeerPi Relay",
+        "state_topic": MQTT_TOPIC_RELAY,
+        "payload_on": "ON",
+        "payload_off": "OFF",
+        "device_class": "power",
+        "unique_id": "beerpi_relay",
+        "value_template": "{{ value_json.relay }}"
+    }
+    mqtt_client.publish(relay_config_topic, json.dumps(relay_config_payload))
+    logger.info("Published Home Assistant auto discovery for relay state.")
+
+def read_temperature():
+    """
+    Read temperature from the DS18B20 sensor.
+    The sensor data is available under /sys/bus/w1/devices/28-*/w1_slave.
+    """
     try:
-        with open(sensor_path + '/w1_slave', 'r') as f:
-            lines = f.readlines()
-        # Check for valid sensor output (CRC check)
-        if lines[0].strip()[-3:] != "YES":
-            logging.error("Temperature sensor not ready (CRC check failed).")
+        # Find the sensor file; assume only one sensor is connected.
+        sensor_files = glob.glob("/sys/bus/w1/devices/28-*/w1_slave")
+        if not sensor_files:
+            logger.error("No DS18B20 sensor found!")
             return None
+        sensor_file = sensor_files[0]
+        with open(sensor_file, "r") as f:
+            lines = f.readlines()
+        # Check for a successful reading
+        if lines[0].strip()[-3:] != "YES":
+            logger.error("Temperature sensor not ready.")
+            return None
+        # Parse temperature from second line
         equals_pos = lines[1].find("t=")
         if equals_pos != -1:
-            temp_string = lines[1][equals_pos+2:]
-            return float(temp_string) / 1000.0
-        else:
-            logging.error("Temperature reading not found in sensor data.")
-            return None
+            temp_string = lines[1][equals_pos + 2:]
+            temperature = float(temp_string) / 1000.0
+            return temperature
     except Exception as e:
-        logging.error("Error reading temperature sensor: %s", e)
+        logger.exception("Error reading temperature: %s", e)
         return None
 
-# Relay state: if GPIO is available, use a designated input pin; otherwise, simulate.
-# Change RELAY_PIN as needed.
-RELAY_PIN = 17
-
-def setup_relay():
-    if GPIO_AVAILABLE:
-        GPIO.setmode(GPIO.BCM)
-        GPIO.setup(RELAY_PIN, GPIO.IN)  # Assumes relay state is provided as digital input
-    else:
-        logging.info("RPi.GPIO not available. Relay state will be simulated.")
-
 def read_relay_state():
-    if GPIO_AVAILABLE:
-        # Assume HIGH means ON, LOW means OFF
-        state = GPIO.input(RELAY_PIN)
-        return "ON" if state == GPIO.HIGH else "OFF"
-    else:
-        # Simulate relay state if not using GPIO
-        import random
-        return random.choice(["ON", "OFF"])
+    """
+    Read the current state of the relay.
+    The relay is assumed to be controlled by a GPIO output.
+    """
+    try:
+        # Read the GPIO output state; assume HIGH means ON.
+        state = GPIO.input(GPIO_RELAY_PIN)
+        return "ON" if state else "OFF"
+    except Exception as e:
+        logger.exception("Error reading relay state: %s", e)
+        return "UNKNOWN"
 
-# ----- Initialize InfluxDB Client -----
-influx_client = InfluxDBClient(url=INFLUX_URL, token=INFLUX_TOKEN, org=INFLUX_ORG)
-write_api = influx_client.write_api(write_options=WritePrecision.NS)
+def send_data(temperature, relay_state):
+    """Publish sensor data via MQTT and write the data point to InfluxDB."""
+    # Publish MQTT messages
+    temp_payload = json.dumps({"temperature": temperature})
+    relay_payload = json.dumps({"relay": relay_state})
+    mqtt_client.publish(MQTT_TOPIC_TEMPERATURE, temp_payload)
+    mqtt_client.publish(MQTT_TOPIC_RELAY, relay_payload)
+    logger.info("Published MQTT messages: %s, %s", temp_payload, relay_payload)
 
-# ----- Initialize MQTT Client for Publishing -----
-mqtt_client = mqtt.Client("beerpi_publisher")
-mqtt_client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
-mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
-mqtt_client.loop_start()
+    # Write data point to InfluxDB
+    point = (
+        Point("beerpi")
+        .field("temperature", temperature if temperature is not None else 0.0)
+        .field("relay", 1 if relay_state == "ON" else 0)
+    )
+    try:
+        write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=point)
+        logger.info("Wrote data to InfluxDB: %s", point.to_line_protocol())
+    except Exception as e:
+        logger.exception("Error writing to InfluxDB: %s", e)
 
-def publish_to_mqtt(temperature, relay_state):
-    # Publish temperature and relay state to respective MQTT topics
-    mqtt_client.publish("home/beerpi/temperature", payload=str(temperature), retain=False)
-    mqtt_client.publish("home/beerpi/relay_state", payload=relay_state, retain=False)
-    logging.info("Published to MQTT: temperature=%s, relay_state=%s", temperature, relay_state)
-
-def write_to_influx(temperature, relay_state):
-    # Write a point for temperature
-    point_temp = Point("temperature").field("value", temperature).time(time.time_ns(), WritePrecision.NS)
-    write_api.write(bucket=INFLUX_BUCKET, record=point_temp)
-    # Write a point for relay state
-    point_relay = Point("relay_state").tag("state", relay_state).time(time.time_ns(), WritePrecision.NS)
-    write_api.write(bucket=INFLUX_BUCKET, record=point_relay)
-    logging.info("Wrote to InfluxDB: temperature=%s, relay_state=%s", temperature, relay_state)
+def cleanup(signum, frame):
+    """Cleanup function for graceful exit."""
+    logger.info("Shutting down BeerPi...")
+    GPIO.cleanup()
+    mqtt_client.disconnect()
+    sys.exit(0)
 
 def main():
-    sensor_path = detect_temp_sensor()
-    if sensor_path:
-        logging.info("DS18B20 sensor detected at %s", sensor_path)
-    else:
-        logging.error("No DS18B20 temperature sensor detected on GPIO. Exiting.")
-        return
+    # Setup GPIO mode and relay pin
+    GPIO.setmode(GPIO.BCM)
+    GPIO.setup(GPIO_RELAY_PIN, GPIO.OUT)
+    # (If needed, you can initialize the relay output state here.)
 
-    setup_relay()
+    # Publish Home Assistant auto discovery messages on startup.
+    publish_homeassistant_discovery()
 
-    # Main loop: read sensor data, write to InfluxDB, and publish to MQTT every 10 seconds.
+    # Register signal handlers for graceful shutdown.
+    signal.signal(signal.SIGINT, cleanup)
+    signal.signal(signal.SIGTERM, cleanup)
+
+    logger.info("Starting BeerPi loop with a %s second interval.", POLL_INTERVAL)
     while True:
-        temperature = read_temp_sensor(sensor_path)
-        if temperature is None:
-            logging.error("Failed to read temperature. Skipping this cycle.")
-        else:
-            relay_state = read_relay_state()
-            logging.info("Read temperature=%.2f°C and relay_state=%s", temperature, relay_state)
-            write_to_influx(temperature, relay_state)
-            publish_to_mqtt(temperature, relay_state)
-        time.sleep(10)
+        temperature = read_temperature()
+        relay_state = read_relay_state()
+        logger.info("Temperature: %s °C, Relay: %s", temperature, relay_state)
+        send_data(temperature, relay_state)
+        time.sleep(POLL_INTERVAL)
 
 if __name__ == "__main__":
     main()
