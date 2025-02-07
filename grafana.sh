@@ -1,16 +1,17 @@
 #!/bin/bash
-# grafana.sh - Version 1.13
+# grafana.sh - Version 1.14
 # This script sets up Grafana on a Raspberry Pi by performing the following:
 #  - Prompts for Grafana admin username and password (default: admin/admin)
 #  - Auto-detects the system architecture (32-bit or 64-bit) and selects the correct Grafana package URL
 #  - Removes any previous Grafana installation and configuration files
 #  - Installs Grafana from the prebuilt ARM package
 #  - Updates /etc/grafana/grafana.ini with the provided admin credentials to avoid forced password resets
+#  - Forces a restart of the Grafana service so that the new credentials take effect
 #  - Ensures correct directory ownership for Grafana
 #  - Creates and starts the Grafana systemd service
 #  - Waits until Grafana’s API (/api/health) reports healthy ("database" : "ok")
+#  - Verifies that a credential-required API call (search) works with the provided credentials
 #  - Calls a secondary import script (grafana_import.sh) to configure the InfluxDB datasource and import the dashboard
-#  - Then verifies by querying Grafana’s API that the datasource and dashboard were imported successfully
 #
 # WARNING: This script will remove any existing Grafana installation, configuration, dashboards, and datasources.
 #
@@ -28,7 +29,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 print_sep
-echo "Starting Grafana installation script (Version 1.13) with verbose output."
+echo "Starting Grafana installation script (Version 1.14) with verbose output."
 print_sep
 
 ########################################
@@ -178,23 +179,19 @@ else
 fi
 print_sep
 
+# Force a restart so that the updated credentials take effect.
+echo "Restarting Grafana service to apply new configuration..."
+systemctl restart grafana-server
+sleep 5
+echo "Re-checking Grafana service status..."
+systemctl status grafana-server --no-pager
+print_sep
+
 ########################################
 # Fix ownership of Grafana directories to prevent permission errors.
 ########################################
 echo "Ensuring correct ownership for /usr/share/grafana..."
 chown -R grafana:grafana /usr/share/grafana
-print_sep
-
-########################################
-# Enable and start the Grafana service.
-########################################
-echo "Enabling Grafana service..."
-systemctl enable grafana-server
-echo "Starting Grafana service..."
-systemctl start grafana-server || { echo "ERROR: Failed to start grafana-server service."; exit 1; }
-sleep 5
-echo "Checking Grafana service status..."
-systemctl status grafana-server --no-pager
 print_sep
 
 ########################################
@@ -217,6 +214,19 @@ until echo "$HEALTH" | grep -E -q '"database"[[:space:]]*:[[:space:]]*"ok"'; do
     fi
 done
 echo "Grafana API is available."
+print_sep
+
+########################################
+# Verify credentials by performing a simple search.
+########################################
+echo "Verifying Grafana credentials with a test search..."
+SEARCH_RESPONSE=$(curl -s http://${grafana_user}:${grafana_pass}@localhost:3000/api/search?query=dashboard)
+echo "Search API response: ${SEARCH_RESPONSE}"
+if echo "$SEARCH_RESPONSE" | grep -q '"message"'; then
+    echo "WARNING: Search response contains an error message."
+else
+    echo "Credentials appear to be valid."
+fi
 print_sep
 
 ########################################
