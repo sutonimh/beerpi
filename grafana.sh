@@ -1,20 +1,20 @@
 #!/bin/bash
-# grafana.sh - Version 2.10
+# grafana.sh - Version 2.11
 # This merged script sets up Grafana on a Raspberry Pi by performing the following:
 #
 # 1. Prompts for Grafana admin username and password (default: admin/admin).
-# 2. Auto-detects the system architecture (32-bit or 64-bit) and selects the correct Grafana package URL.
-# 3. Checks if the correct Grafana package is already installed.
-#    - If not installed or if the version differs, it purges and reinstalls the package.
-#    - If installed with version 9.3.2 and /usr/share/grafana exists, it skips package reinstallation.
+# 2. Auto-detects the system architecture and selects the correct Grafana package URL.
+# 3. Checks if the correct Grafana package (version 9.3.2) is installed.
+#    - If not installed or if /usr/share/grafana is missing, it forces a full reinstallation.
+#    - If installed with version 9.3.2 and the home directory exists, it skips package reinstallation.
 # 4. Always removes the systemd unit file and deletes any existing dashboard/datasource via the API.
 # 5. Removes only /etc/grafana (to force a configuration update) while preserving /usr/share/grafana and /var/lib/grafana.
 # 6. Installs Grafana if needed.
 # 7. Creates (or recreates) the systemd unit file and ensures the Grafana system user exists.
 # 8. Updates /etc/grafana/grafana.ini:
-#    - If /usr/share/grafana/conf/defaults.ini exists, it’s copied to /etc/grafana/grafana.ini and then updated;
-#    - Otherwise, a minimal complete configuration file is created that includes [server], [paths], [log], [log.console],
-#      and [security] (with your provided credentials).
+#    - If /usr/share/grafana/conf/defaults.ini exists, it is copied; otherwise, a minimal complete configuration file is created.
+#      The minimal configuration includes [server], [paths], [log], [log.console], and [tracing.jaeger].
+#    - The [security] section is then added/updated with the provided admin credentials.
 # 9. Fixes ownership for /usr/share/grafana.
 # 10. Restarts Grafana so that the new configuration takes effect.
 # 11. Performs a one-time API health check and verifies credentials via a test search.
@@ -37,7 +37,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 print_sep
-echo "Starting Grafana installation script (Version 2.10) with minimal delays."
+echo "Starting Grafana installation script (Version 2.11) with minimal delays."
 print_sep
 
 ########################################
@@ -203,7 +203,7 @@ mkdir -p /etc/grafana
 if [ -f /usr/share/grafana/conf/defaults.ini ]; then
     cp /usr/share/grafana/conf/defaults.ini /etc/grafana/grafana.ini
 else
-    echo "WARNING: /usr/share/grafana/conf/defaults.ini not found; creating a minimal configuration file."
+    echo "WARNING: /usr/share/grafana/conf/defaults.ini not found; creating a minimal complete configuration file."
     cat <<EOF > /etc/grafana/grafana.ini
 [server]
 http_port = 3000
@@ -220,6 +220,9 @@ mode = console
 [log.console]
 level = info
 format = console
+
+[tracing.jaeger]
+enabled = false
 EOF
 fi
 # Update or append the [security] section.
