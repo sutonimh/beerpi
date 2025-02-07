@@ -1,20 +1,21 @@
 #!/bin/bash
-# install.sh v3.0
-# - Adds colored output for better readability
-# - Uses green for successes, red for warnings/errors, blue for general info
-# - Improves spacing and tab alignment for legibility
+# install.sh v3.1
+# - Uses only green, white, yellow, and red text for readability
+# - Improves log spacing and tab alignment
+# - Retains all previous improvements
 
 set -e  # Exit on error
 
 # Define color codes
 GREEN="\e[32m"
 RED="\e[31m"
-BLUE="\e[34m"
+YELLOW="\e[33m"
+WHITE="\e[97m"
 NC="\e[0m"  # No Color
 
 CONFIG_FILE="$HOME/.beerpi_install_config"
 
-echo -e "\n${BLUE}🔄 Loading previous installation settings...${NC}"
+echo -e "\n${YELLOW}🔄 Loading previous installation settings...${NC}"
 if [ -f "$CONFIG_FILE" ]; then
     source "$CONFIG_FILE"
     echo -e "${GREEN}✔️  Previous settings loaded.${NC}"
@@ -23,7 +24,7 @@ else
 fi
 
 # --- Interactive Prompts with Defaults ---
-echo -e "\n${BLUE}🛠️  Configuring Database Settings...${NC}"
+echo -e "\n${YELLOW}🛠️  Configuring Database Settings...${NC}"
 read -p "Enter Database Host [$DB_HOST]: " input
 DB_HOST="${input:-${DB_HOST:-localhost}}"
 
@@ -36,7 +37,7 @@ echo ""
 read -p "Enter Database Name [$DB_DATABASE]: " input
 DB_DATABASE="${input:-${DB_DATABASE:-beerpi_db}}"
 
-echo -e "\n${BLUE}🔧 Configuring MQTT Settings...${NC}"
+echo -e "\n${YELLOW}🔧 Configuring MQTT Settings...${NC}"
 read -p "Enter MQTT Broker Address [$MQTT_BROKER]: " input
 MQTT_BROKER="${input:-${MQTT_BROKER:-}}"
 
@@ -61,7 +62,7 @@ EOF
 echo -e "${GREEN}✔️  Installation settings saved (except passwords).${NC}"
 
 # Store environment variables securely
-echo -e "\n${BLUE}🔒 Storing environment variables...${NC}"
+echo -e "\n${YELLOW}🔒 Storing environment variables...${NC}"
 cat <<EOF >> ~/.bashrc
 export DB_HOST="$DB_HOST"
 export DB_USER="$DB_USER"
@@ -73,13 +74,13 @@ EOF
 echo -e "${GREEN}✔️  Environment variables saved. (Restart your session to apply them.)${NC}"
 
 # Install Required Tools
-echo -e "\n${BLUE}🔧 Installing Mosquitto clients and Netcat-Traditional for MQTT testing...${NC}"
+echo -e "\n${YELLOW}🔧 Installing Mosquitto clients and Netcat-Traditional for MQTT testing...${NC}"
 sudo apt update
 sudo apt install -y mosquitto-clients netcat-traditional
 echo -e "${GREEN}✔️  Mosquitto clients and Netcat-Traditional installed.${NC}"
 
 # --- MQTT Connection Test ---
-echo -e "\n${BLUE}🔍 Testing MQTT connection to broker at $MQTT_BROKER:$MQTT_PORT...${NC}"
+echo -e "\n${YELLOW}🔍 Testing MQTT connection to broker at $MQTT_BROKER:$MQTT_PORT...${NC}"
 MQTT_TEST_RESULT=$(mosquitto_pub -h "$MQTT_BROKER" -p "$MQTT_PORT" -u "$MQTT_USERNAME" -P "$MQTT_PASSWORD" -t "test/mqtt" -m "MQTT Test Message" 2>&1)
 
 if [[ "$MQTT_TEST_RESULT" == *"Connection Refused"* || "$MQTT_TEST_RESULT" == *"Error"* ]]; then
@@ -91,21 +92,21 @@ else
 fi
 
 # Ensure correct permissions for repo
-echo -e "\n${BLUE}🌍 Resetting the repository (removing old files)...${NC}"
+echo -e "\n${YELLOW}🌍 Resetting the repository (removing old files)...${NC}"
 sudo rm -rf /home/tempmonitor/temperature_monitor
 sudo mkdir -p /home/tempmonitor/temperature_monitor
 sudo chown -R tempmonitor:tempmonitor /home/tempmonitor/temperature_monitor
 sudo chmod -R 755 /home/tempmonitor/temperature_monitor
-echo -e "${BLUE}📂 Cloning repository as 'tempmonitor'...${NC}"
+echo -e "${YELLOW}📂 Cloning repository as 'tempmonitor'...${NC}"
 sudo -u tempmonitor git clone https://github.com/sutonimh/beerpi.git /home/tempmonitor/temperature_monitor
 echo -e "${GREEN}✔️  Repository fully re-cloned.${NC}"
 
 # Ensure Virtual Environment Exists
-echo -e "\n${BLUE}🐍 Checking Python virtual environment...${NC}"
+echo -e "\n${YELLOW}🐍 Checking Python virtual environment...${NC}"
 cd /home/tempmonitor/temperature_monitor
 
 if [ ! -d "venv" ]; then
-    echo -e "${BLUE}📂 Virtual environment not found, creating one...${NC}"
+    echo -e "${YELLOW}📂 Virtual environment not found, creating one...${NC}"
     sudo -u tempmonitor python3 -m venv venv
     echo -e "${GREEN}✔️  Virtual environment created.${NC}"
 else
@@ -113,14 +114,14 @@ else
 fi
 
 # Upgrade dependencies
-echo -e "\n${BLUE}📦 Upgrading Python dependencies...${NC}"
+echo -e "\n${YELLOW}📦 Upgrading Python dependencies...${NC}"
 sudo -u tempmonitor /home/tempmonitor/temperature_monitor/venv/bin/pip install --upgrade pip
 sudo -u tempmonitor /home/tempmonitor/temperature_monitor/venv/bin/pip install --upgrade flask plotly mysql-connector-python RPi.GPIO paho-mqtt
 echo -e "${GREEN}✔️  Python dependencies upgraded.${NC}"
 
 # Create Systemd Service
 SERVICE_FILE="/etc/systemd/system/temp_monitor.service"
-echo -e "\n${BLUE}⚙️  Creating systemd service file...${NC}"
+echo -e "\n${YELLOW}⚙️  Creating systemd service file...${NC}"
 sudo tee $SERVICE_FILE > /dev/null <<EOF
 [Unit]
 Description=Temperature Monitoring and Relay Control Service
@@ -139,7 +140,7 @@ EOF
 echo -e "${GREEN}✔️  Systemd service file created.${NC}"
 
 # Enable and Start Service
-echo -e "\n${BLUE}🚀 Enabling and starting temp_monitor.service...${NC}"
+echo -e "\n${YELLOW}🚀 Enabling and starting temp_monitor.service...${NC}"
 sudo systemctl daemon-reload
 sudo systemctl enable temp_monitor.service
 sudo systemctl restart temp_monitor.service
@@ -148,7 +149,7 @@ echo -e "${GREEN}✔️  Service is now running.${NC}"
 # Final Message
 echo -e "\n${GREEN}🎉 **Installation Complete!** 🎉${NC}"
 echo -e "${GREEN}✅ Temperature monitoring system is now installed and running.${NC}"
-echo -e "👉 To check the service status, run:  ${BLUE}sudo systemctl status temp_monitor.service${NC}"
-echo -e "👉 To test MQTT manually, run: ${BLUE}mosquitto_pub -h $MQTT_BROKER -p $MQTT_PORT -u $MQTT_USERNAME -P 'your_password' -t 'test/mqtt' -m 'Hello MQTT'${NC}"
-echo -e "👉 To access the web UI, go to: ${BLUE}http://your-pi-ip:5000${NC}"
+echo -e "👉 To check the service status, run:  ${WHITE}sudo systemctl status temp_monitor.service${NC}"
+echo -e "👉 To test MQTT manually, run: ${WHITE}mosquitto_pub -h $MQTT_BROKER -p $MQTT_PORT -u $MQTT_USERNAME -P 'your_password' -t 'test/mqtt' -m 'Hello MQTT'${NC}"
+echo -e "👉 To access the web UI, go to: ${WHITE}http://your-pi-ip:5000${NC}"
 echo -e "${GREEN}🚀 Enjoy your BeerPi temperature monitoring system!${NC}"
