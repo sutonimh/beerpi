@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-temp_control.py v2.6
+temp_control.py v2.9
+- Fixes Flask template error by ensuring `current_relay_state` is always defined.
 - Uses `mqtt_handler.py` for MQTT functions.
 - Keeps temperature monitoring and web UI separate from MQTT.
 """
@@ -22,21 +23,25 @@ handler.setFormatter(formatter)
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 logger.addHandler(handler)
-logging.info("Application starting... (v2.6)")
+logging.info("Application starting... (v2.9)")
 
 # ---------------------------
 # Flask Web Application Setup
 # ---------------------------
 app = Flask(__name__)
 
+# Default values
+current_relay_state = "Unknown"
+
 @app.route("/", methods=["GET", "POST"])
 def index():
+    global current_relay_state
     message = "System is running."
-    
+
     # Example: Publish a message when someone loads the web page
     mqtt_handler.publish_message("home/beerpi/web_status", "Web UI Loaded", retain=False)
 
-    return render_template("index.html", message=message)
+    return render_template("index.html", message=message, current_relay_state=current_relay_state)
 
 if __name__ == "__main__":
     logging.info("Starting Flask app on port 5000")
