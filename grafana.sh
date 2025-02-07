@@ -1,5 +1,5 @@
 #!/bin/bash
-# grafana.sh
+# grafana.sh - Version 1.0
 # This script uninstalls any existing Grafana installation and related configuration files,
 # then installs Grafana on a Raspberry Pi 3B+ using a prebuilt ARM package.
 # It prompts whether you are using a 32-bit or 64-bit OS (defaulting to 64-bit) and installs
