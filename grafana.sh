@@ -1,21 +1,22 @@
 #!/bin/bash
-# grafana.sh - Version 2.1
-# This script sets up Grafana on a Raspberry Pi by performing the following:
-#  - Prompts for Grafana admin username and password (default: admin/admin)
-#  - Auto-detects the system architecture (32-bit or 64-bit) and selects the correct Grafana package URL
-#  - Checks if the correct Grafana package is already installed; if so, it skips purging/reinstalling
-#  - Otherwise, it removes any previous Grafana installation and configuration files, and installs Grafana
-#  - Overwrites /etc/grafana/grafana.ini using the default configuration, and appends a [security] section
-#    with the provided admin credentials (to avoid forced password resets)
-#  - Fixes directory ownership for Grafana (/usr/share/grafana)
-#  - Creates and starts the Grafana systemd service and restarts it so that the new credentials take effect
-#  - Performs a one-time health check of Grafana’s API (/api/health)
-#  - Verifies credentials via a test search, then calls a secondary import routine (inline) to configure
-#    the InfluxDB datasource and import the BeerPi Temperature dashboard
-#  - Finally, verifies by querying the Grafana API that the datasource and dashboard have been imported.
+# grafana.sh - Version 2.2
+# This merged script sets up Grafana on a Raspberry Pi by performing the following:
 #
-# WARNING: This script will remove any existing Grafana configuration, dashboards, and datasources
-# if a reinstall is triggered.
+# 1. Prompts for Grafana admin username and password (default: admin/admin)
+# 2. Auto-detects the system architecture (32-bit or 64-bit) and selects the correct Grafana package URL
+# 3. Checks if the correct Grafana package is already installed; if so, it skips purging/reinstallation.
+# 4. Otherwise, it removes any previous Grafana configuration files (for a clean slate) and deletes any existing dashboard/datasource via the API.
+# 5. Installs Grafana if not already installed.
+# 6. Creates a systemd unit file if missing and ensures the Grafana system user exists.
+# 7. Force-updates /etc/grafana/grafana.ini by copying the default configuration (if available) and appending a [security] section
+#    with the provided credentials.
+# 8. Fixes directory ownership for /usr/share/grafana.
+# 9. Restarts Grafana so that the new configuration takes effect.
+# 10. Performs a one-time health check of Grafana’s API (/api/health) and verifies credentials via a test search.
+# 11. Imports the InfluxDB datasource and BeerPi Temperature dashboard via the Grafana API.
+# 12. Verifies that the datasource and dashboard have been imported.
+#
+# WARNING: This script will remove any existing Grafana configuration, dashboards, and datasources.
 #
 set -e
 
@@ -31,7 +32,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 print_sep
-echo "Starting Grafana installation script (Version 2.1) with minimal delays."
+echo "Starting Grafana installation script (Version 2.2) with minimal delays."
 print_sep
 
 ########################################
@@ -113,7 +114,7 @@ fi
 print_sep
 
 ########################################
-# Install Grafana if needed.
+# Install Grafana package if needed.
 ########################################
 if [ "$skip_install" -eq 0 ]; then
     echo "Downloading Grafana package from: ${grafana_package_url}"
@@ -177,10 +178,13 @@ print_sep
 # Force-update Grafana configuration from defaults and set admin credentials.
 ########################################
 echo "Forcing Grafana configuration update..."
+# Create /etc/grafana directory if it doesn't exist.
+mkdir -p /etc/grafana
 if [ -f /usr/share/grafana/conf/defaults.ini ]; then
     cp /usr/share/grafana/conf/defaults.ini /etc/grafana/grafana.ini
 else
-    echo "WARNING: /usr/share/grafana/conf/defaults.ini not found. Skipping config copy."
+    echo "WARNING: /usr/share/grafana/conf/defaults.ini not found. Creating an empty configuration file."
+    touch /etc/grafana/grafana.ini
 fi
 cat <<EOF >> /etc/grafana/grafana.ini
 
@@ -237,11 +241,9 @@ fi
 print_sep
 
 ########################################
-# Configure InfluxDB datasource and import BeerPi Temperature dashboard.
+# Import InfluxDB datasource.
 ########################################
-echo "Importing InfluxDB datasource and BeerPi Temperature dashboard..."
-
-# Configure datasource.
+echo "Importing InfluxDB datasource..."
 DS_PAYLOAD=$(cat <<EOF
 {
   "name": "InfluxDB",
@@ -263,7 +265,10 @@ else
 fi
 print_sep
 
-# Import dashboard.
+########################################
+# Import BeerPi Temperature dashboard.
+########################################
+echo "Importing BeerPi Temperature dashboard..."
 DASHBOARD_JSON=$(cat <<EOF
 {
   "dashboard": {
