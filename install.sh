@@ -1,12 +1,12 @@
 #!/bin/bash
-# install.sh v3.8
+# install.sh v3.9
 # - Optimized for faster reinstalls
 # - Skips reinstalling packages and venv if they already exist
 # - Pulls only the latest Git changes instead of full re-clone
 # - Installs and configures MariaDB when the database host is localhost
 # - Tests the database connection before continuing
 # - Prompts for MQTT settings (broker, port, username, and password)
-# - Exports DB_PASSWORD to ~/.bashrc so web_ui.py can connect to MariaDB
+# - Exports DB_PASSWORD via a file (~/.beerpi_db_password) so web_ui.py can connect to MariaDB
 # - Informs the user if no temperature sensor is detected (simulated data will be used)
 
 set -e  # Exit on error
@@ -41,6 +41,10 @@ echo ""
 
 read -p "Enter Database Name [$DB_DATABASE]: " input
 DB_DATABASE="${input:-${DB_DATABASE:-beerpi_db}}"
+
+# Write DB_PASSWORD to a file for services that do not source ~/.bashrc
+echo "$DB_PASSWORD" > ~/.beerpi_db_password
+chmod 600 ~/.beerpi_db_password
 
 # --- Interactive Prompts for MQTT Settings ---
 echo -e "\n${YELLOW}🔧 Configuring MQTT Settings...${NC}"
