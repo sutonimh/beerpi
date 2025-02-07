@@ -1,16 +1,17 @@
 #!/bin/bash
-# grafana.sh - Version 1.17
-# This script sets up Grafana on a Raspberry Pi by performing the following:
-#  - Prompts for Grafana admin username and password (default: admin/admin)
-#  - Auto-detects the system architecture (32-bit or 64-bit) and selects the correct Grafana package URL
-#  - Removes any previous Grafana installation and configuration files
-#  - Installs Grafana from the prebuilt ARM package
-#  - Updates /etc/grafana/grafana.ini with the provided admin credentials to avoid forced password resets
-#  - Fixes directory ownership for Grafana (/usr/share/grafana)
-#  - Creates and starts the Grafana systemd service
-#  - Performs a one-time health check of Grafana’s API (/api/health)
-#  - Calls a secondary import script (grafana_import.sh) and passes the admin credentials as arguments
-#  - Verifies by querying Grafana’s API that the InfluxDB datasource and BeerPi Temperature dashboard are present
+# grafana.sh - Version 2.0
+# This merged script sets up Grafana on a Raspberry Pi by performing the following:
+#
+# 1. Prompts for Grafana admin username and password (default: admin/admin)
+# 2. Auto-detects the system architecture (32-bit or 64-bit) and selects the correct Grafana package URL
+# 3. Cleans up any previous Grafana installation and configuration files, and deletes any existing dashboard/datasource via the API
+# 4. Downloads and installs Grafana from the prebuilt ARM package and fixes dependency issues
+# 5. Creates a systemd unit file if missing and ensures the Grafana system user exists
+# 6. Overwrites /etc/grafana/grafana.ini with the default configuration from /usr/share/grafana/conf/defaults.ini, then appends a [security] section with the provided credentials
+# 7. Fixes directory ownership for /usr/share/grafana
+# 8. Restarts Grafana so that the new credentials take effect, and checks the Grafana API health
+# 9. Uses the same credentials to configure the InfluxDB datasource and import the BeerPi Temperature dashboard via the Grafana API
+# 10. Verifies by querying the API that both the datasource and dashboard are present
 #
 # WARNING: This script will remove any existing Grafana installation, configuration, dashboards, and datasources.
 #
@@ -28,7 +29,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 print_sep
-echo "Starting Grafana installation script (Version 1.17) with minimal delays."
+echo "Starting Grafana installation and import script (Version 2.0) with verbose output."
 print_sep
 
 ########################################
@@ -160,22 +161,21 @@ fi
 print_sep
 
 ########################################
-# Update Grafana configuration to set admin credentials.
+# Force-update Grafana configuration from defaults and set admin credentials.
 ########################################
-if [ -f /etc/grafana/grafana.ini ]; then
-    echo "Updating Grafana configuration with admin credentials..."
-    if grep -q "^\[security\]" /etc/grafana/grafana.ini; then
-        sed -i "s/^;*admin_user.*/admin_user = ${grafana_user}/" /etc/grafana/grafana.ini
-        sed -i "s/^;*admin_password.*/admin_password = ${grafana_pass}/" /etc/grafana/grafana.ini
-    else
-        echo "[security]" >> /etc/grafana/grafana.ini
-        echo "admin_user = ${grafana_user}" >> /etc/grafana/grafana.ini
-        echo "admin_password = ${grafana_pass}" >> /etc/grafana/grafana.ini
-    fi
-    echo "Grafana configuration updated."
+echo "Forcing Grafana configuration update..."
+if [ -f /usr/share/grafana/conf/defaults.ini ]; then
+    cp /usr/share/grafana/conf/defaults.ini /etc/grafana/grafana.ini
 else
-    echo "WARNING: /etc/grafana/grafana.ini not found. Grafana may not be configured correctly."
+    echo "WARNING: /usr/share/grafana/conf/defaults.ini not found. Skipping config copy."
 fi
+cat <<EOF >> /etc/grafana/grafana.ini
+
+[security]
+admin_user = ${grafana_user}
+admin_password = ${grafana_pass}
+EOF
+echo "Grafana configuration forced to use provided credentials."
 print_sep
 
 ########################################
@@ -224,13 +224,81 @@ fi
 print_sep
 
 ########################################
-# Call secondary import script to configure datasource and dashboard.
+# Import InfluxDB datasource and BeerPi Temperature dashboard.
 ########################################
-echo "Running secondary import script (grafana_import.sh) with credentials as arguments..."
-if [ -f ./grafana_import.sh ]; then
-    ./grafana_import.sh "$grafana_user" "$grafana_pass"
+echo "Importing InfluxDB datasource and BeerPi Temperature dashboard..."
+DS_PAYLOAD=$(cat <<EOF
+{
+  "name": "InfluxDB",
+  "type": "influxdb",
+  "access": "proxy",
+  "url": "http://localhost:8086",
+  "database": "combined_sensor_db",
+  "isDefault": true
+}
+EOF
+)
+echo "Sending datasource configuration to Grafana API..."
+DS_RESPONSE=$(curl -s -X POST -H "Content-Type: application/json" -d "${DS_PAYLOAD}" http://${grafana_user}:${grafana_pass}@localhost:3000/api/datasources)
+echo "Datasource API response: ${DS_RESPONSE}"
+if echo "$DS_RESPONSE" | grep -q '"message":"Datasource added"'; then
+    echo "Datasource configured successfully."
 else
-    echo "Secondary import script (grafana_import.sh) not found, skipping datasource and dashboard import."
+    echo "WARNING: Datasource configuration may have failed. Please check the response above."
+fi
+print_sep
+
+DASHBOARD_JSON=$(cat <<EOF
+{
+  "dashboard": {
+    "id": null,
+    "uid": "temperature_dashboard",
+    "title": "BeerPi Temperature",
+    "folderId": 0,
+    "tags": [ "temperature" ],
+    "timezone": "browser",
+    "schemaVersion": 16,
+    "version": 1,
+    "panels": [
+      {
+        "type": "graph",
+        "title": "Temperature Over Time",
+        "gridPos": { "x": 0, "y": 0, "w": 24, "h": 9 },
+        "datasource": "InfluxDB",
+        "targets": [
+          {
+            "measurement": "temperature",
+            "groupBy": [
+              { "type": "time", "params": [ "$__interval" ] }
+            ],
+            "select": [
+              [
+                { "type": "field", "params": [ "temperature" ] },
+                { "type": "mean", "params": [] }
+              ]
+            ],
+            "refId": "A"
+          }
+        ],
+        "xaxis": { "mode": "time", "show": true },
+        "yaxes": [
+          { "format": "celsius", "label": "Temperature", "logBase": 1, "show": true },
+          { "show": true }
+        ]
+      }
+    ]
+  },
+  "overwrite": true
+}
+EOF
+)
+echo "Sending dashboard JSON to Grafana API..."
+DB_RESPONSE=$(curl -s -X POST -H "Content-Type: application/json" -d "${DASHBOARD_JSON}" http://${grafana_user}:${grafana_pass}@localhost:3000/api/dashboards/db)
+echo "Dashboard API response: ${DB_RESPONSE}"
+if echo "$DB_RESPONSE" | grep -q '"status":"success"'; then
+    echo "Dashboard imported successfully."
+else
+    echo "WARNING: Dashboard import may have failed. Please check the response above."
 fi
 print_sep
 
