@@ -1,5 +1,5 @@
 #!/bin/bash
-# install.sh v3.2
+# install.sh v3.3
 # - Optimized for faster reinstalls
 # - Skips reinstalling packages and venv if they already exist
 # - Pulls only the latest Git changes instead of full re-clone
@@ -130,8 +130,8 @@ fi
 
 # Upgrade dependencies
 echo -e "\n${YELLOW}📦 Upgrading Python dependencies...${NC}"
-sudo -u tempmonitor /home/tempmonitor/temperature_monitor/venv/bin/pip install --upgrade pip
-sudo -u tempmonitor /home/tempmonitor/temperature_monitor/venv/bin/pip install --upgrade flask plotly mysql-connector-python RPi.GPIO paho-mqtt
+sudo -H -u tempmonitor /home/tempmonitor/temperature_monitor/venv/bin/pip install --upgrade pip
+sudo -H -u tempmonitor /home/tempmonitor/temperature_monitor/venv/bin/pip install --upgrade flask plotly mysql-connector-python RPi.GPIO paho-mqtt
 echo -e "${GREEN}✔️  Python dependencies upgraded.${NC}"
 
 # Restart the service only if necessary
