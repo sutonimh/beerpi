@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
 """
-temp_control.py v2.9
-- Fixes Flask template error by ensuring `current_relay_state` is always defined.
+temp_control.py v3.0
 - Uses `mqtt_handler.py` for MQTT functions.
-- Keeps temperature monitoring and web UI separate from MQTT.
+- Uses `web_ui.py` for the Flask web interface.
+- Keeps main script clean and modular.
 """
 
-import os
 import logging
-from flask import Flask, request, render_template
 import threading
 from logging.handlers import RotatingFileHandler
 import mqtt_handler  # Import MQTT module
+import web_ui  # Import Web UI module
 
 # ---------------------------
 # Logging Configuration
@@ -23,26 +22,19 @@ handler.setFormatter(formatter)
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 logger.addHandler(handler)
-logging.info("Application starting... (v2.9)")
+logging.info("Application starting... (v3.0)")
 
 # ---------------------------
-# Flask Web Application Setup
+# Start Web UI in a Separate Thread
 # ---------------------------
-app = Flask(__name__)
+web_thread = threading.Thread(target=web_ui.start_web_ui)
+web_thread.daemon = True
+web_thread.start()
 
-# Default values
-current_relay_state = "Unknown"
+logging.info("Web UI started successfully.")
 
-@app.route("/", methods=["GET", "POST"])
-def index():
-    global current_relay_state
-    message = "System is running."
-
-    # Example: Publish a message when someone loads the web page
-    mqtt_handler.publish_message("home/beerpi/web_status", "Web UI Loaded", retain=False)
-
-    return render_template("index.html", message=message, current_relay_state=current_relay_state)
-
-if __name__ == "__main__":
-    logging.info("Starting Flask app on port 5000")
-    app.run(host="0.0.0.0", port=5000, debug=False)
+# ---------------------------
+# Keep the script running
+# ---------------------------
+while True:
+    pass  # Main loop placeholder
