@@ -1,19 +1,17 @@
 #!/bin/bash
-# grafana.sh - Version 1.8
-# This script uninstalls any existing Grafana installation and related configuration files,
-# then installs Grafana on a Raspberry Pi using a prebuilt ARM package.
-# It automatically detects whether you are using a 32-bit or 64-bit OS and installs the
-# appropriate package. For 64-bit systems, it downloads the package without the "-rpi" suffix.
+# grafana.sh - Version 1.9
+# This script sets up Grafana on a Raspberry Pi by performing the following:
+#  - Prompts for Grafana admin username and password (default: admin/admin)
+#  - Auto-detects the system architecture (32-bit or 64-bit) and selects the correct Grafana package URL
+#  - Removes any existing Grafana installation and configuration files
+#  - Installs Grafana from the prebuilt ARM package
+#  - Updates /etc/grafana/grafana.ini with the provided admin credentials to avoid forced password resets
+#  - Ensures correct directory ownership for Grafana (so that data can be written)
+#  - Creates and starts the Grafana systemd service
+#  - Configures an InfluxDB datasource (pointing to the combined_sensor_db)
+#  - Imports the BeerPi Temperature dashboard (which displays the temperature data)
 #
-# Next, it prompts for a Grafana admin username and password (defaulting to admin/admin)
-# and updates /etc/grafana/grafana.ini accordingly to avoid forced password resets.
-#
-# Then, it sets up Grafana’s systemd service, fixes directory ownership,
-# waits for Grafana to fully start, configures the InfluxDB datasource (pointing to the combined_sensor_db),
-# and imports a sample dashboard into the General folder.
-#
-# WARNING: This script will remove any existing Grafana installation, configuration,
-# dashboards, and datasources.
+# WARNING: This script will remove any existing Grafana installation, configuration, dashboards, and datasources.
 #
 set -e
 
@@ -29,7 +27,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 print_sep
-echo "Starting Grafana installation script (Version 1.8) with verbose output."
+echo "Starting Grafana installation script (Version 1.9) with verbose output."
 print_sep
 
 ########################################
@@ -228,9 +226,9 @@ echo "Datasource configuration completed."
 print_sep
 
 ########################################
-# Import a sample dashboard into Grafana.
+# Import the BeerPi Temperature dashboard into Grafana.
 ########################################
-echo "Importing sample dashboard into Grafana..."
+echo "Importing BeerPi Temperature dashboard into Grafana..."
 DASHBOARD_JSON=$(cat <<'EOF'
 {
   "dashboard": {
