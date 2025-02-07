@@ -1,5 +1,5 @@
 #!/bin/bash
-# grafana.sh - Version 1.1
+# grafana.sh - Version 1.2
 # This script uninstalls any existing Grafana installation and related configuration files,
 # then installs Grafana on a Raspberry Pi 3B+ using a prebuilt ARM package.
 # It prompts whether you are using a 32-bit or 64-bit OS (defaulting to 64-bit) and installs
@@ -23,7 +23,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 print_sep
-echo "Starting Grafana installation script (Version 1.1) with verbose output."
+echo "Starting Grafana installation script (Version 1.2) with verbose output."
 print_sep
 
 ########################################
@@ -43,7 +43,6 @@ echo "Removing Grafana systemd unit file and configuration directories if presen
 rm -f /lib/systemd/system/grafana-server.service
 rm -rf /etc/grafana /usr/share/grafana /var/lib/grafana
 
-# Delete previously imported dashboard and datasource via API (if Grafana is running)
 echo "Attempting to delete any existing Grafana dashboard/datasource via API..."
 curl -s -X DELETE http://admin:admin@localhost:3000/api/dashboards/uid/temperature_dashboard || true
 curl -s -X DELETE http://admin:admin@localhost:3000/api/datasources/name/InfluxDB || true
@@ -79,7 +78,7 @@ if command -v grafana-server > /dev/null; then
     installed_arch=$(dpkg-query -W -f='${Architecture}' grafana-rpi 2>/dev/null || echo "none")
     echo "Previously installed Grafana architecture: $installed_arch"
     if [ "$installed_arch" != "$desired_arch" ]; then
-        echo "Installed Grafana architecture ($installed_arch) does not match desired ($desired_arch). Removing package..."
+        echo "Installed Grafana architecture ($installed_arch) does not match desired ($desired_arch). Removing..."
         dpkg --purge grafana-rpi || true
     else
         echo "Grafana is already installed with the desired architecture ($installed_arch)."
@@ -92,12 +91,15 @@ print_sep
 # Install Grafana via prebuilt ARM package.
 ########################################
 echo "Downloading Grafana package from: ${grafana_package_url}"
-wget -qO grafana.deb "$grafana_package_url"
+# Remove the -q flag so progress is shown
+wget -O grafana.deb "$grafana_package_url"
+echo "Download completed."
 echo "Installing Grafana package..."
 dpkg -i grafana.deb || true
 echo "Fixing any dependency issues..."
 apt-get install -y -f
 rm grafana.deb
+echo "Grafana package installation completed."
 print_sep
 
 ########################################
