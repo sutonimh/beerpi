@@ -1,16 +1,16 @@
 #!/bin/bash
-# grafana.sh - Version 1.15
+# grafana.sh - Version 1.16
 # This script sets up Grafana on a Raspberry Pi by performing the following:
 #  - Prompts for Grafana admin username and password (default: admin/admin)
 #  - Auto-detects the system architecture (32-bit or 64-bit) and selects the correct Grafana package URL
 #  - Removes any previous Grafana installation and configuration files
 #  - Installs Grafana from the prebuilt ARM package
 #  - Updates /etc/grafana/grafana.ini with the provided admin credentials to avoid forced password resets
-#  - Ensures correct directory ownership for Grafana (/usr/share/grafana)
+#  - Fixes directory ownership for Grafana
 #  - Creates and starts the Grafana systemd service
 #  - Waits until Grafana’s API (/api/health) reports healthy ("database" : "ok")
-#  - Calls a secondary import script (grafana_import.sh) to configure the InfluxDB datasource and import the dashboard
-#  - Verifies that the datasource and dashboard are present by querying the Grafana API
+#  - Calls a secondary import script (grafana_import.sh) with explicit username/password arguments
+#  - Verifies that the InfluxDB datasource and BeerPi Temperature dashboard are present by querying the Grafana API
 #
 # WARNING: This script will remove any existing Grafana installation, configuration, dashboards, and datasources.
 #
@@ -28,7 +28,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 print_sep
-echo "Starting Grafana installation script (Version 1.15) with verbose output."
+echo "Starting Grafana installation script (Version 1.16) with verbose output."
 print_sep
 
 ########################################
@@ -196,7 +196,7 @@ systemctl status grafana-server --no-pager
 print_sep
 
 ########################################
-# (Optional) Re-run ownership fix after restart, in case service re-created files.
+# Reapply ownership fix after restart.
 ########################################
 echo "Reapplying ownership fix for /usr/share/grafana..."
 chown -R grafana:grafana /usr/share/grafana || { echo "Failed to fix ownership on /usr/share/grafana after restart"; exit 1; }
@@ -225,13 +225,13 @@ echo "Grafana API is available."
 print_sep
 
 ########################################
-# Verify credentials by performing a simple search.
+# Verify credentials by performing a test search.
 ########################################
 echo "Verifying Grafana credentials with a test search..."
 SEARCH_RESPONSE=$(curl -s http://${grafana_user}:${grafana_pass}@localhost:3000/api/search?query=dashboard)
 echo "Search API response: ${SEARCH_RESPONSE}"
 if echo "$SEARCH_RESPONSE" | grep -q '"message"'; then
-    echo "WARNING: Search response contains an error message."
+    echo "WARNING: Search response contains an error message. Credentials may be incorrect."
 else
     echo "Credentials appear to be valid."
 fi
@@ -240,11 +240,9 @@ print_sep
 ########################################
 # Call secondary import script to configure datasource and dashboard.
 ########################################
-echo "Running secondary import script (grafana_import.sh)..."
-export GRAFANA_USER=${grafana_user}
-export GRAFANA_PASS=${grafana_pass}
+echo "Running secondary import script (grafana_import.sh) with credentials as arguments..."
 if [ -f ./grafana_import.sh ]; then
-    ./grafana_import.sh
+    ./grafana_import.sh "$grafana_user" "$grafana_pass"
 else
     echo "Secondary import script (grafana_import.sh) not found, skipping datasource and dashboard import."
 fi
