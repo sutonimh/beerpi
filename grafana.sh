@@ -1,5 +1,5 @@
 #!/bin/bash
-# grafana.sh - Version 2.9
+# grafana.sh - Version 2.10
 # This merged script sets up Grafana on a Raspberry Pi by performing the following:
 #
 # 1. Prompts for Grafana admin username and password (default: admin/admin).
@@ -8,20 +8,20 @@
 #    - If not installed or if the version differs, it purges and reinstalls the package.
 #    - If installed with version 9.3.2 and /usr/share/grafana exists, it skips package reinstallation.
 # 4. Always removes the systemd unit file and deletes any existing dashboard/datasource via the API.
-# 5. Removes only /etc/grafana (for configuration update) if a fresh install is needed; otherwise, it preserves it.
+# 5. Removes only /etc/grafana (to force a configuration update) while preserving /usr/share/grafana and /var/lib/grafana.
 # 6. Installs Grafana if needed.
 # 7. Creates (or recreates) the systemd unit file and ensures the Grafana system user exists.
 # 8. Updates /etc/grafana/grafana.ini:
-#    - If an existing valid configuration exists, it updates the [security] section with the provided credentials.
-#    - Otherwise, it creates a minimal configuration file that includes required sections such as [server],
-#      [paths], [security], [log], and [log.console].
+#    - If /usr/share/grafana/conf/defaults.ini exists, it’s copied to /etc/grafana/grafana.ini and then updated;
+#    - Otherwise, a minimal complete configuration file is created that includes [server], [paths], [log], [log.console],
+#      and [security] (with your provided credentials).
 # 9. Fixes ownership for /usr/share/grafana.
 # 10. Restarts Grafana so that the new configuration takes effect.
 # 11. Performs a one-time API health check and verifies credentials via a test search.
 # 12. Imports the InfluxDB datasource and BeerPi Temperature dashboard via Grafana’s API.
 # 13. Verifies that the datasource and dashboard have been imported.
 #
-# WARNING: This script will remove /etc/grafana if a fresh install is triggered, and will delete dashboards/datasources via the API.
+# WARNING: This script will remove /etc/grafana and delete dashboards/datasources via the API.
 #
 set -e
 
@@ -37,7 +37,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 print_sep
-echo "Starting Grafana installation script (Version 2.9) with minimal delays."
+echo "Starting Grafana installation script (Version 2.10) with minimal delays."
 print_sep
 
 ########################################
@@ -124,14 +124,13 @@ print_sep
 ########################################
 # Clean slate for configuration.
 ########################################
-# We remove /etc/grafana to force a configuration update, but preserve /usr/share/grafana and /var/lib/grafana.
+# Remove /etc/grafana to force a configuration update.
 if [ "$skip_install" -eq 0 ]; then
     echo "Fresh install: Removing /etc/grafana..."
     rm -rf /etc/grafana
 else
     echo "Preserving existing /etc/grafana."
-    # Optionally, you might still remove /etc/grafana if you want to force update.
-    rm -rf /etc/grafana
+    rm -rf /etc/grafana  # Optionally remove to force update.
 fi
 print_sep
 
