@@ -1,9 +1,10 @@
 #!/bin/bash
-# install.sh v2.0
-# - Defaults: DB Host (localhost), DB User (beerpi), DB Name (beerpi_db)
-# - Remembers previous settings for future installs (except passwords)
-# - More verbose confirmation messages
-# - Guides user on next steps after installation
+# install.sh v2.6
+# - Supports modular MQTT setup (`mqtt_handler.py`)
+# - Installs `mosquitto-clients` and `netcat` for MQTT debugging
+# - Preserves virtual environment (`venv`)
+# - Keeps previous install settings (except passwords)
+# - Fixes permissions before cloning repo
 
 set -e  # Exit on error
 
@@ -65,66 +66,39 @@ export MQTT_USERNAME="$MQTT_USERNAME"
 EOF
 echo "✅ Environment variables saved. (You must restart your session to apply them.)"
 
-# Create dedicated service user
-echo "👤 Creating dedicated service user 'tempmonitor' (if not exists)..."
-sudo useradd -r -s /bin/false tempmonitor || true
+# Install Required Tools
+echo "🔧 Installing Mosquitto clients and Netcat for MQTT testing..."
+sudo apt update
+sudo apt install -y mosquitto-clients netcat
+echo "✅ Mosquitto clients and Netcat installed."
+
+# Ensure correct permissions for repo
+echo "🌍 Resetting the repository (removing old files)..."
+sudo rm -rf /home/tempmonitor/temperature_monitor
 sudo mkdir -p /home/tempmonitor/temperature_monitor
 sudo chown -R tempmonitor:tempmonitor /home/tempmonitor/temperature_monitor
-echo "✅ User 'tempmonitor' setup completed."
+sudo chmod -R 755 /home/tempmonitor/temperature_monitor
+echo "📂 Cloning repository as 'tempmonitor'..."
+sudo -u tempmonitor git clone https://github.com/sutonimh/beerpi.git /home/tempmonitor/temperature_monitor
+echo "✅ Repository fully re-cloned."
 
-# Enable One-Wire
-CONFIG_TXT="/boot/firmware/config.txt"
-if ! grep -q "dtparam=w1-gpio=on" "$CONFIG_TXT"; then
-    echo "⚙️  Enabling One-Wire in $CONFIG_TXT..."
-    echo "dtparam=w1-gpio=on" | sudo tee -a "$CONFIG_TXT"
-    echo "✅ One-Wire enabled."
-fi
-
-echo "🔧 Ensuring One-Wire modules load on boot..."
-echo -e "w1_gpio\nw1_therm" | sudo tee /etc/modules-load.d/onewire.conf
-sudo modprobe w1-gpio
-sudo modprobe w1-therm
-echo "✅ One-Wire modules loaded successfully."
-
-# Database Setup
-echo "🗄️ Setting up MariaDB database..."
-sudo mysql -u root <<EOF
-CREATE DATABASE IF NOT EXISTS ${DB_DATABASE};
-USE ${DB_DATABASE};
-CREATE TABLE IF NOT EXISTS temperature (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    value FLOAT,
-    datetime DATETIME
-);
-CREATE TABLE IF NOT EXISTS relay_state (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    state VARCHAR(10),
-    datetime DATETIME
-);
-CREATE USER IF NOT EXISTS '${DB_USER}'@'localhost' IDENTIFIED BY '${DB_PASSWORD}';
-GRANT ALL PRIVILEGES ON ${DB_DATABASE}.* TO '${DB_USER}'@'localhost';
-FLUSH PRIVILEGES;
-EOF
-echo "✅ Database '${DB_DATABASE}' and user '${DB_USER}' created/verified."
-
-# Clone Repository
-if [ ! -d "/home/tempmonitor/temperature_monitor" ]; then
-    echo "🌍 Cloning repository..."
-    sudo -u tempmonitor git clone https://github.com/sutonimh/beerpi.git /home/tempmonitor/temperature_monitor
-    echo "✅ Repository cloned."
-else
-    echo "🔄 Updating existing repository..."
-    sudo -u tempmonitor git -C /home/tempmonitor/temperature_monitor pull origin main
-    echo "✅ Repository updated."
-fi
-
-# Create Virtual Environment
-echo "🐍 Setting up Python virtual environment..."
+# Ensure Virtual Environment Exists
+echo "🐍 Checking Python virtual environment..."
 cd /home/tempmonitor/temperature_monitor
-sudo -u tempmonitor python3 -m venv venv
+
+if [ ! -d "venv" ]; then
+    echo "📂 Virtual environment not found, creating one..."
+    sudo -u tempmonitor python3 -m venv venv
+    echo "✅ Virtual environment created."
+else
+    echo "🔄 Virtual environment already exists. Skipping creation."
+fi
+
+# Upgrade dependencies
+echo "📦 Upgrading Python dependencies..."
 sudo -u tempmonitor /home/tempmonitor/temperature_monitor/venv/bin/pip install --upgrade pip
-sudo -u tempmonitor /home/tempmonitor/temperature_monitor/venv/bin/pip install flask plotly mysql-connector-python RPi.GPIO paho-mqtt
-echo "✅ Python virtual environment and dependencies installed."
+sudo -u tempmonitor /home/tempmonitor/temperature_monitor/venv/bin/pip install --upgrade flask plotly mysql-connector-python RPi.GPIO paho-mqtt
+echo "✅ Python dependencies upgraded."
 
 # Create Systemd Service
 SERVICE_FILE="/etc/systemd/system/temp_monitor.service"
@@ -158,7 +132,6 @@ echo ""
 echo "🎉 **Installation Complete!** 🎉"
 echo "✅ Temperature monitoring system is now installed and running."
 echo "👉 To check the service status, run:  **sudo systemctl status temp_monitor.service**"
-echo "👉 To view logs, run: **sudo journalctl -u temp_monitor.service -f**"
+echo "👉 To test MQTT, run: **mosquitto_pub -h $MQTT_BROKER -p $MQTT_PORT -u $MQTT_USERNAME -P 'your_password' -t 'test/topic' -m 'Hello MQTT'**"
 echo "👉 To access the web UI, go to: **http://your-pi-ip:5000**"
-echo "👉 If using MQTT, ensure your Home Assistant is set up to discover new MQTT entities."
 echo "🚀 Enjoy your BeerPi temperature monitoring system!"
