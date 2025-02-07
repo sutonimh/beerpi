@@ -1,12 +1,12 @@
 #!/bin/bash
-# grafana.sh - Version 1.4
+# grafana.sh - Version 1.6
 # This script uninstalls any existing Grafana installation and related configuration files,
 # then installs Grafana on a Raspberry Pi using a prebuilt ARM package.
 # It prompts whether you are using a 32-bit or 64-bit OS (defaulting to 64-bit) and installs
 # the appropriate package. For 64-bit systems, it downloads the package without the "-rpi" suffix.
 #
-# After installation, it sets up Grafana’s systemd service, waits for Grafana to fully start,
-# configures the InfluxDB datasource (pointing to the combined_sensor_db),
+# After installation, it sets up Grafana’s systemd service, adjusts directory ownership,
+# waits for Grafana to fully start, configures the InfluxDB datasource (pointing to the combined_sensor_db),
 # and imports a sample dashboard.
 #
 # WARNING: This script will remove any existing Grafana installation, configuration, dashboards, and datasources.
@@ -25,7 +25,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 print_sep
-echo "Starting Grafana installation script (Version 1.4) with verbose output."
+echo "Starting Grafana installation script (Version 1.6) with verbose output."
 print_sep
 
 ########################################
@@ -145,6 +145,13 @@ if ! id grafana > /dev/null 2>&1; then
 else
     echo "Grafana system user exists."
 fi
+print_sep
+
+########################################
+# Fix ownership of Grafana directories to prevent permission errors.
+########################################
+echo "Ensuring correct ownership for /usr/share/grafana..."
+chown -R grafana:grafana /usr/share/grafana
 print_sep
 
 ########################################
