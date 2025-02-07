@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-web_ui.py v1.8
+web_ui.py v1.8 (updated)
 Handles the Flask web interface for BeerPi.
 - Retrieves sensor data from the MariaDB database.
 - Generates a Plotly graph from historical sensor data.
@@ -18,16 +18,34 @@ import mqtt_handler  # Used here for consistency
 import plotly.graph_objs as go
 from plotly.offline import plot
 
-# Helper function to get DB password
 def get_db_password():
+    """
+    Attempts to retrieve the DB_PASSWORD.
+    First, it checks the environment variable.
+    If not set, it reads the configuration file (~/.beerpi_install_config)
+    for a line that starts with DB_PASSWORD=.
+    """
     db_password = os.environ.get("DB_PASSWORD")
     if not db_password:
-        # Attempt to read from ~/.beerpi_db_password
-        config_path = os.path.expanduser("~/.beerpi_db_password")
-        if os.path.exists(config_path):
+        config_path = os.path.expanduser("~/.beerpi_install_config")
+        try:
             with open(config_path, "r") as f:
-                db_password = f.read().strip()
+                for line in f:
+                    if line.startswith("DB_PASSWORD="):
+                        # Expecting a line like: DB_PASSWORD="yourpassword"
+                        db_password = line.split("=", 1)[1].strip().strip('"')
+                        break
+        except Exception as e:
+            logging.error("Failed to read DB_PASSWORD from config: " + str(e))
     return db_password or ""
+
+# ---------------------------
+# Database Connection Settings
+# ---------------------------
+DB_HOST = os.environ.get("DB_HOST", "localhost")
+DB_USER = os.environ.get("DB_USER", "beerpi")
+DB_DATABASE = os.environ.get("DB_DATABASE", "beerpi_db")
+DB_PASSWORD = get_db_password()
 
 # ---------------------------
 # Logging Configuration
@@ -41,15 +59,7 @@ handler.setFormatter(formatter)
 logger = logging.getLogger("WebUI")
 logger.setLevel(logging.DEBUG)
 logger.addHandler(handler)
-logging.info("Web UI starting... (v1.8)")
-
-# ---------------------------
-# Database Connection Settings
-# ---------------------------
-DB_HOST = os.environ.get("DB_HOST", "localhost")
-DB_USER = os.environ.get("DB_USER", "beerpi")
-DB_DATABASE = os.environ.get("DB_DATABASE", "beerpi_db")
-DB_PASSWORD = get_db_password()
+logging.info("Web UI starting... (v1.8 updated)")
 
 # ---------------------------
 # Helper Function: Retrieve Latest Sensor Data
