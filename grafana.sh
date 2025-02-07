@@ -1,24 +1,25 @@
 #!/bin/bash
-# grafana.sh - Version 2.6
+# grafana.sh - Version 2.7
 # This merged script sets up Grafana on a Raspberry Pi by performing the following:
 #
 # 1. Prompts for Grafana admin username and password (default: admin/admin).
 # 2. Auto-detects the system architecture (32-bit or 64-bit) and selects the correct Grafana package URL.
 # 3. Checks if the correct Grafana package is already installed.
-#    - If not installed or if /usr/share/grafana is missing, it forces a full reinstallation.
-#    - If installed with version 9.3.2 and /usr/share/grafana exists, it skips package reinstallation.
+#    - If not installed or if the version is different, it forces a full reinstallation.
+#    - If installed with version 9.3.2 and the home directory exists, it skips package reinstallation.
 # 4. Always removes the systemd unit file and deletes any existing dashboard/datasource via the API.
-# 5. Installs (or reinstalls) Grafana as needed.
-# 6. Creates (or recreates) the systemd unit file and ensures the Grafana system user exists.
-# 7. Force-updates /etc/grafana/grafana.ini:
-#    - If a fresh install, it copies defaults from /usr/share/grafana/conf/defaults.ini (if available);
-#      otherwise, it creates an empty file.
-#    - It then appends a [security] section with the provided credentials.
-# 8. Fixes ownership for /usr/share/grafana (creating the directory if needed).
-# 9. Restarts Grafana so that the new configuration takes effect.
-# 10. Performs a one-time API health check and verifies credentials via a test search.
-# 11. Imports the InfluxDB datasource and BeerPi Temperature dashboard via Grafana’s API.
-# 12. Verifies that the datasource and dashboard have been imported.
+# 5. Removes (only) /etc/grafana to force a configuration update, preserving /usr/share/grafana and /var/lib/grafana.
+# 6. Installs (or reinstalls) Grafana as needed.
+# 7. Creates (or recreates) the systemd unit file and ensures the Grafana system user exists.
+# 8. Updates /etc/grafana/grafana.ini:
+#    - If a fresh install, copies defaults from /usr/share/grafana/conf/defaults.ini (if available);
+#      otherwise, creates an empty file.
+#    - Then appends (or updates) a [security] section with the provided admin credentials.
+# 9. Fixes ownership for /usr/share/grafana.
+# 10. Restarts Grafana so that the new configuration takes effect.
+# 11. Performs a one-time API health check and verifies credentials via a test search.
+# 12. Imports the InfluxDB datasource and BeerPi Temperature dashboard via the Grafana API.
+# 13. Verifies that the datasource and dashboard have been imported.
 #
 # WARNING: This script will remove /etc/grafana and delete dashboards/datasources via the API.
 #
@@ -36,7 +37,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 print_sep
-echo "Starting Grafana installation script (Version 2.6) with minimal delays."
+echo "Starting Grafana installation script (Version 2.7) with minimal delays."
 print_sep
 
 ########################################
@@ -60,7 +61,7 @@ print_sep
 echo "Removing Grafana systemd unit file if present..."
 rm -f /lib/systemd/system/grafana-server.service
 
-echo "Attempting to delete any existing Grafana dashboard/datasource via API..."
+echo "Deleting any existing Grafana dashboard/datasource via API..."
 curl -s -X DELETE http://${grafana_user}:${grafana_pass}@localhost:3000/api/dashboards/uid/temperature_dashboard || true
 curl -s -X DELETE http://${grafana_user}:${grafana_pass}@localhost:3000/api/datasources/name/InfluxDB || true
 print_sep
@@ -96,7 +97,7 @@ echo "Using package name: ${pkg_name}"
 print_sep
 
 ########################################
-# Check if Grafana is already installed and if /usr/share/grafana exists.
+# Check if the correct Grafana package is already installed.
 ########################################
 skip_install=0
 if dpkg -l | grep -q "^ii\s\+$pkg_name"; then
@@ -107,7 +108,7 @@ if dpkg -l | grep -q "^ii\s\+$pkg_name"; then
             echo "WARNING: /usr/share/grafana is missing even though the package is installed. Forcing reinstallation."
             skip_install=0
         else
-            echo "No version change detected and /usr/share/grafana exists. Skipping package reinstallation."
+            echo "No version change detected and home directory exists. Skipping package reinstallation."
             skip_install=1
         fi
     else
@@ -185,7 +186,7 @@ print_sep
 # Update Grafana configuration to set admin credentials.
 ########################################
 echo "Updating Grafana configuration with admin credentials..."
-# For a fresh install, remove /etc/grafana; otherwise, preserve it.
+# Only remove /etc/grafana if this is a fresh install.
 if [ "$skip_install" -eq 0 ]; then
     rm -rf /etc/grafana
 fi
