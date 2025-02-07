@@ -1,11 +1,12 @@
 #!/bin/bash
-# install.sh v3.6
+# install.sh v3.7
 # - Optimized for faster reinstalls
 # - Skips reinstalling packages and venv if they already exist
 # - Pulls only the latest Git changes instead of full re-clone
 # - Installs and configures MariaDB when the database host is localhost
 # - Tests the database connection before continuing
 # - Prompts for MQTT settings (broker, port, username, and password)
+# - Informs the user if no temperature sensor is detected (simulated data will be used)
 
 set -e  # Exit on error
 
@@ -168,6 +169,14 @@ echo -e "${GREEN}✔️  Python dependencies upgraded.${NC}"
 echo -e "\n${YELLOW}🚀 Restarting temp_monitor.service only if necessary...${NC}"
 sudo systemctl is-active --quiet temp_monitor.service && sudo systemctl restart temp_monitor.service || sudo systemctl start temp_monitor.service
 echo -e "${GREEN}✔️  Service is now running.${NC}"
+
+# --- Sensor Detection Message ---
+# Check for DS18B20 sensor in /sys/bus/w1/devices/28-*
+shopt -s nullglob
+sensor_array=(/sys/bus/w1/devices/28-*)
+if [ ${#sensor_array[@]} -eq 0 ]; then
+    echo -e "${YELLOW}⚠️  No temperature sensor detected. Simulated data will be used until you connect a sensor and restart the Raspberry Pi.${NC}"
+fi
 
 # Final Message
 echo -e "\n${GREEN}🎉 **Installation Complete!** 🎉${NC}"
